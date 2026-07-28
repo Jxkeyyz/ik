@@ -76,7 +76,7 @@
         }
 
         .sidebar {
-            width: 300px;
+            width: 320px;
             background-color: var(--panel-bg);
             padding: 20px;
             overflow-y: auto;
@@ -279,6 +279,27 @@
                 <button class="creator-btn" onclick="createButton()">Add Button</button>
             </div>
 
+            <!-- NEW: Edit / Delete Stat Section -->
+            <div class="form-group">
+                <h3>4. Edit / Delete Stat</h3>
+                <select id="edit-stat-select" onchange="loadStatIntoEditor()">
+                    <!-- Populated dynamically -->
+                </select>
+                <input type="text" id="edit-stat-name" placeholder="Display Name">
+                <input type="number" id="edit-stat-priority" placeholder="Priority Level">
+                <label style="font-size: 0.9em; margin-top: 5px; display: block;">
+                    <input type="checkbox" id="edit-stat-is-boost" onchange="document.getElementById('edit-boost-options').style.display = this.checked ? 'block' : 'none'"> Is this a Boost/Multiplier?
+                </label>
+                <div id="edit-boost-options" style="display: none; margin-top: 5px;">
+                    <input type="text" id="edit-stat-boosts-input" placeholder="Rules (e.g., money:5, rebirths:2)">
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <button class="creator-btn" style="flex: 1;" onclick="saveStatChanges()">Save Edit</button>
+                    <button class="creator-btn danger-btn" style="flex: 1;" onclick="deleteStat()">Delete</button>
+                </div>
+            </div>
+
             <div class="form-group">
                 <h3>System</h3>
                 <button class="creator-btn sys-btn" onclick="manualSave()">Save Game</button>
@@ -459,8 +480,6 @@
                 }
 
                 // 3. Prestige System Update
-                // Priorities 0 (Cash) and 1 (Multiplier) act as standard purchases.
-                // Resetting only occurs when acquiring a stat with Priority 2 or higher.
                 let acquiredPriority = rewardStatDef.priority || 0;
                 if (acquiredPriority >= 2) {
                     for (let key in game.stats) {
@@ -552,6 +571,102 @@
                 alert("Invalid ID or ID already exists.");
             }
         }
+
+        // --- NEW: Stat Editing and Deletion Functions ---
+        function loadStatIntoEditor() {
+            let id = document.getElementById('edit-stat-select').value;
+            if (!id || !game.stats[id]) return;
+            
+            let stat = game.stats[id];
+            document.getElementById('edit-stat-name').value = stat.name;
+            document.getElementById('edit-stat-priority').value = stat.priority || 0;
+            document.getElementById('edit-stat-is-boost').checked = stat.isBoost;
+            
+            let boostOptions = document.getElementById('edit-boost-options');
+            if (stat.isBoost) {
+                boostOptions.style.display = 'block';
+                let boostStr = '';
+                if (stat.boosts) {
+                    boostStr = Object.keys(stat.boosts).map(k => `${k}:${stat.boosts[k]}`).join(', ');
+                }
+                document.getElementById('edit-stat-boosts-input').value = boostStr;
+            } else {
+                boostOptions.style.display = 'none';
+                document.getElementById('edit-stat-boosts-input').value = '';
+            }
+        }
+
+        function saveStatChanges() {
+            let id = document.getElementById('edit-stat-select').value;
+            if (!id || !game.stats[id]) return;
+            
+            let name = document.getElementById('edit-stat-name').value.trim();
+            let priority = parseInt(document.getElementById('edit-stat-priority').value) || 0;
+            let isBoost = document.getElementById('edit-stat-is-boost').checked;
+            
+            let boosts = {};
+            if (isBoost) {
+                let rawStr = document.getElementById('edit-stat-boosts-input').value.toLowerCase().trim();
+                if (rawStr) {
+                    let pairs = rawStr.split(',');
+                    pairs.forEach(pair => {
+                        let parts = pair.split(':');
+                        if (parts.length === 2) {
+                            let target = parts[0].trim();
+                            let power = parseFloat(parts[1].trim());
+                            if (!isNaN(power)) boosts[target] = power;
+                        } else if (parts.length === 1 && parts[0].trim() !== "") {
+                            let val = parseFloat(parts[0].trim());
+                            if (!isNaN(val)) boosts['all'] = val; 
+                            else boosts[parts[0].trim()] = 1; 
+                        }
+                    });
+                }
+                if (Object.keys(boosts).length === 0) boosts['all'] = 1;
+            }
+
+            if (name) {
+                game.stats[id].name = name;
+                game.stats[id].priority = priority;
+                
+                // If switching from normal stat to boost or vice versa, reset the amount correctly
+                if (game.stats[id].isBoost !== isBoost) {
+                    game.stats[id].isBoost = isBoost;
+                    game.stats[id].value = isBoost ? new Decimal(1) : new Decimal(0);
+                }
+                
+                if (isBoost) {
+                    game.stats[id].boosts = boosts;
+                } else {
+                    delete game.stats[id].boosts;
+                }
+                
+                alert(`Stat '${name}' updated!`);
+                renderAll();
+                saveGame(true);
+            } else {
+                alert("Stat name cannot be empty.");
+            }
+        }
+
+        function deleteStat() {
+            let id = document.getElementById('edit-stat-select').value;
+            if (!id || !game.stats[id]) return;
+            
+            if (confirm(`Are you sure you want to delete '${game.stats[id].name}'? This will also DELETE EVERY BUTTON that requires or rewards this stat!`)) {
+                // Remove the stat
+                delete game.stats[id];
+                
+                // Remove any buttons reliant on this stat
+                game.buttons = game.buttons.filter(btn => btn.costStat !== id && btn.rewardStat !== id);
+                
+                alert("Stat and related buttons deleted.");
+                updateLevel();
+                renderAll();
+                saveGame(true);
+            }
+        }
+        // ------------------------------------------------
 
         function createArea() {
             let id = document.getElementById('area-id').value.trim().toLowerCase();
@@ -705,14 +820,17 @@
             let areaSelect = document.getElementById('btn-area');
             let costSelect = document.getElementById('btn-cost-stat');
             let rewardSelect = document.getElementById('btn-reward-stat');
+            let editSelect = document.getElementById('edit-stat-select');
 
             let currentArea = areaSelect.value;
             let currentCost = costSelect.value;
             let currentReward = rewardSelect.value;
+            let currentEdit = editSelect.value;
 
             areaSelect.innerHTML = '';
             costSelect.innerHTML = '';
             rewardSelect.innerHTML = '';
+            editSelect.innerHTML = '';
 
             for (let key in game.areas) {
                 areaSelect.innerHTML += `<option value="${key}">${game.areas[key].name}</option>`;
@@ -722,11 +840,22 @@
                 let opt = `<option value="${key}">${game.stats[key].name}</option>`;
                 costSelect.innerHTML += opt;
                 rewardSelect.innerHTML += opt;
+                
+                // Add to Edit dropdown with ID and Priority info
+                editSelect.innerHTML += `<option value="${key}">${game.stats[key].name} (ID: ${key})</option>`;
             }
 
             if (currentArea) areaSelect.value = currentArea;
             if (currentCost) costSelect.value = currentCost;
             if (currentReward) rewardSelect.value = currentReward;
+            
+            // Reload the editor UI correctly based on dropdown
+            if (currentEdit && game.stats[currentEdit]) {
+                editSelect.value = currentEdit;
+                loadStatIntoEditor();
+            } else {
+                loadStatIntoEditor(); // Force load the first item in list if old one was deleted
+            }
         }
 
         function renderAll() {

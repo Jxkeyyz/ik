@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom Button Simulator</title>
+    
+    <!-- IMPORTING BREAK_ETERNITY.JS FOR INFINITE NUMBERS -->
+    <script src="https://cdn.jsdelivr.net/npm/break_eternity.js@2"></script>
+
+    <style>
+        :root {
+            --bg-color: #1e1e24;
+            --panel-bg: #2b2b36;
+            --text-color: #f5f5f5;
+            --accent: #7289da;
+            --button-bg: #43b581;
+            --button-hover: #3ca374;
+            --danger: #f04747;
+            --warning: #faa61a;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        header {
+            background-color: var(--panel-bg);
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #111;
+        }
+
+        #stats-container {
+            display: flex;
+            gap: 20px;
+            font-size: 1.1em;
+            font-weight: bold;
+            flex-wrap: wrap;
+        }
+
+        .stat-item {
+            background: rgba(0,0,0,0.3);
+            padding: 5px 10px;
+            border-radius: 5px;
+            border-left: 4px solid var(--accent);
+        }
+
+        .level-badge {
+            background: var(--warning);
+            color: #111;
+            padding: 5px 15px;
+            border-radius: 15px;
+            font-weight: bold;
+        }
+
+        main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 300px;
+            background-color: var(--panel-bg);
+            padding: 20px;
+            overflow-y: auto;
+            border-left: 2px solid #111;
+        }
+
+        .game-area {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        h2 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 5px; }
+
+        .area {
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid #444;
+            transition: filter 0.3s, opacity 0.3s;
+        }
+
+        .area.locked {
+            opacity: 0.5;
+            pointer-events: none;
+            filter: grayscale(100%);
+        }
+
+        .buttons-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        .sim-button {
+            position: relative;
+            background-color: var(--button-bg);
+            color: white;
+            border: none;
+            padding: 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.05s, background-color 0.1s;
+            text-align: center;
+            
+            /* NEW: Prevents text highlighting and double-click zooming when spamming */
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        .sim-button:hover { background-color: var(--button-hover); }
+        .sim-button:active { transform: scale(0.95); }
+        .sim-button:disabled {
+            background-color: #555;
+            color: #888;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-cost, .btn-reward { font-size: 0.95em; display: block; margin: 3px 0; }
+        .btn-reward { color: #fff; font-weight: 900; font-size: 1.1em; }
+
+        .delete-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: var(--danger);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+        
+        .delete-btn:hover { background: #ff5b5b; transform: scale(1.1); }
+        .sim-button:hover .delete-btn { display: flex; }
+
+        .form-group {
+            margin-bottom: 15px;
+            background: rgba(0,0,0,0.2);
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            background: #111;
+            border: 1px solid #555;
+            color: white;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        .creator-btn {
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            padding: 10px;
+            width: 100%;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .creator-btn:hover { background-color: #5b6eae; }
+        
+        .sys-btn { background-color: #444; }
+        .sys-btn:hover { background-color: #555; }
+        .danger-btn { background-color: var(--danger); }
+        .danger-btn:hover { background-color: #ff5b5b; }
+        
+        #save-notify {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #43b581;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.5s;
+            pointer-events: none;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div id="stats-container"></div>
+        <div class="level-badge" id="level-display">Level: 1</div>
+    </header>
+
+    <main>
+        <div class="game-area" id="areas-container"></div>
+
+        <div class="sidebar">
+            <h2>Creator Panel</h2>
+            
+            <div class="form-group">
+                <h3>1. Create Stat</h3>
+                <input type="text" id="stat-id" placeholder="Stat ID (e.g., money, multi)">
+                <input type="text" id="stat-name" placeholder="Display Name (e.g., Money)">
+                <label style="font-size: 0.9em; margin-top: 5px; display: block;">
+                    <input type="checkbox" id="stat-is-boost" onchange="document.getElementById('boost-targets').style.display = this.checked ? 'block' : 'none'"> Is this a Boost/Multiplier?
+                </label>
+                <div id="boost-targets" style="display: none; margin-top: 5px;">
+                    <input type="text" id="stat-boost-targets" placeholder="Boosts which Stats? (Blank = ALL)">
+                </div>
+                <button class="creator-btn" onclick="createStat()">Add Stat</button>
+            </div>
+
+            <div class="form-group">
+                <h3>2. Create Area</h3>
+                <input type="text" id="area-id" placeholder="Area ID (e.g., forest)">
+                <input type="text" id="area-name" placeholder="Area Name (e.g., Forest)">
+                <input type="text" id="area-req" placeholder="Level Req to Enter" value="1">
+                <button class="creator-btn" onclick="createArea()">Add Area</button>
+            </div>
+
+            <div class="form-group">
+                <h3>3. Create Button</h3>
+                <select id="btn-area"></select>
+                <select id="btn-cost-stat" placeholder="Cost Stat"></select>
+                <input type="text" id="btn-cost" placeholder="Cost (e.g., 100 or 1e15)">
+                <select id="btn-reward-stat" placeholder="Reward Stat"></select>
+                <input type="text" id="btn-reward" placeholder="Reward (e.g., 1 or 1e5)">
+                <button class="creator-btn" onclick="createButton()">Add Button</button>
+            </div>
+
+            <div class="form-group">
+                <h3>System</h3>
+                <button class="creator-btn sys-btn" onclick="manualSave()">Save Game</button>
+                <button class="creator-btn sys-btn" onclick="loadGame()">Load Game</button>
+                <button class="creator-btn danger-btn" onclick="resetGame()">Reset Progress</button>
+            </div>
+        </div>
+    </main>
+    
+    <div id="save-notify">Game Saved!</div>
+
+    <script>
+        // Number Formatter using break_eternity.js
+        function formatNum(decimalValue) {
+            let d = new Decimal(decimalValue);
+            if (d.lt(1000)) return d.toNumber().toFixed(0);
+            if (d.lt(1e6)) return (d.toNumber() / 1000).toFixed(2) + 'k';
+            if (d.lt(1e9)) return (d.toNumber() / 1e6).toFixed(2) + 'M';
+            if (d.lt(1e12)) return (d.toNumber() / 1e9).toFixed(2) + 'B';
+            if (d.lt(1e15)) return (d.toNumber() / 1e12).toFixed(2) + 'T';
+            return d.toExponential(2).replace('+', '');
+        }
+
+        // Default Game State structure
+        let defaultGame = {
+            level: new Decimal(1),
+            stats: {
+                money: { name: "Money", value: new Decimal(0), isBoost: false, boostTargets: [] },
+                multi: { name: "Multiplier", value: new Decimal(1), isBoost: true, boostTargets: [] }
+            },
+            areas: {
+                spawn: { name: "Spawn", reqLevel: new Decimal(1) }
+            },
+            buttons: [
+                { id: "b1", area: "spawn", costStat: "money", cost: new Decimal(0), rewardStat: "money", reward: new Decimal(1) },
+                { id: "b2", area: "spawn", costStat: "money", cost: new Decimal(100), rewardStat: "multi", reward: new Decimal(1) }
+            ]
+        };
+
+        // Active game state
+        let game = JSON.parse(JSON.stringify(defaultGame)); 
+        
+        function parseDecimalsInGame(gameState) {
+            gameState.level = new Decimal(gameState.level);
+            
+            for (let key in gameState.stats) {
+                gameState.stats[key].value = new Decimal(gameState.stats[key].value);
+            }
+            
+            for (let key in gameState.areas) {
+                gameState.areas[key].reqLevel = new Decimal(gameState.areas[key].reqLevel);
+            }
+            
+            gameState.buttons.forEach(btn => {
+                btn.cost = new Decimal(btn.cost);
+                btn.reward = new Decimal(btn.reward);
+            });
+            
+            return gameState;
+        }
+
+        // --- SAVE & LOAD SYSTEM ---
+        function saveGame(isAuto = false) {
+            localStorage.setItem('customButtonSimSave', JSON.stringify(game));
+            
+            if (!isAuto) {
+                let notify = document.getElementById('save-notify');
+                notify.innerText = "Game Saved!";
+                notify.style.backgroundColor = "#43b581";
+                notify.style.opacity = '1';
+                setTimeout(() => notify.style.opacity = '0', 2000);
+            }
+        }
+
+        function manualSave() {
+            saveGame(false);
+        }
+
+        function loadGame() {
+            let saveStr = localStorage.getItem('customButtonSimSave');
+            if (saveStr) {
+                try {
+                    let parsedData = JSON.parse(saveStr);
+                    game = parseDecimalsInGame(parsedData);
+                    updateLevel();
+                    renderAll();
+                } catch (e) {
+                    game = parseDecimalsInGame(JSON.parse(JSON.stringify(defaultGame)));
+                }
+            } else {
+                game = parseDecimalsInGame(JSON.parse(JSON.stringify(defaultGame)));
+            }
+        }
+
+        function resetGame() {
+            if (confirm("Are you sure you want to reset your progress? Your stat amounts will return to 0, but your custom stats, areas, and buttons will be kept.")) {
+                for (let key in game.stats) {
+                    let stat = game.stats[key];
+                    if (stat.isBoost) {
+                        stat.value = new Decimal(1); 
+                    } else {
+                        stat.value = new Decimal(0); 
+                    }
+                }
+                
+                updateLevel();
+                renderAll();
+                saveGame(true);
+                
+                let notify = document.getElementById('save-notify');
+                notify.innerText = "Progress Reset!";
+                notify.style.backgroundColor = "#f04747";
+                notify.style.opacity = '1';
+                setTimeout(() => notify.style.opacity = '0', 2000);
+            }
+        }
+
+        // --- CALCULATION LOGIC ---
+        function updateLevel() {
+            let score = new Decimal(0);
+            for (let key in game.stats) {
+                let stat = game.stats[key];
+                if (stat.isBoost) {
+                    let boostScore = stat.value.sub(1).mul(15);
+                    if (boostScore.gt(0)) score = score.add(boostScore);
+                } else {
+                    score = score.add(stat.value);
+                }
+            }
+            game.level = new Decimal(1).add(score.pow(0.4).floor());
+            document.getElementById('level-display').innerText = `Level: ${formatNum(game.level)}`;
+        }
+
+        function getBoostMultiplier(targetStatId) {
+            let mult = new Decimal(1);
+            for (let key in game.stats) {
+                let stat = game.stats[key];
+                if (stat.isBoost) {
+                    if (stat.boostTargets.length === 0 || stat.boostTargets.includes(targetStatId)) {
+                        mult = mult.mul(stat.value);
+                    }
+                }
+            }
+            return mult;
+        }
+
+        // --- ACTION LOGIC (UPDATED FOR SPAMMING) ---
+        function clickButton(btnIndex) {
+            let btn = game.buttons[btnIndex];
+            let costStat = game.stats[btn.costStat];
+            
+            if (costStat.value.gte(btn.cost)) {
+                costStat.value = costStat.value.sub(btn.cost);
+                
+                let rewardStat = game.stats[btn.rewardStat];
+                let finalReward = new Decimal(btn.reward);
+                
+                if (!rewardStat.isBoost) {
+                    finalReward = finalReward.mul(getBoostMultiplier(btn.rewardStat));
+                }
+
+                rewardStat.value = rewardStat.value.add(finalReward);
+                
+                // Track level to see if we need to redraw the areas to unlock a new one
+                let oldLevelStr = game.level.toString();
+                updateLevel();
+                
+                // Only redraw the top stats
+                renderStats(); 
+                
+                // Do NOT completely rebuild the buttons unless a new area unlocked
+                if (oldLevelStr !== game.level.toString()) {
+                    renderAreas();
+                } else {
+                    updateButtonStates();
+                }
+            }
+        }
+
+        function deleteButton(btnIndex, event) {
+            event.stopPropagation();
+            game.buttons.splice(btnIndex, 1);
+            renderAll();
+            saveGame(true);
+        }
+
+        // Creator Functions
+        function createStat() {
+            let id = document.getElementById('stat-id').value.trim().toLowerCase();
+            let name = document.getElementById('stat-name').value.trim();
+            let isBoost = document.getElementById('stat-is-boost').checked;
+            
+            let rawTargets = document.getElementById('stat-boost-targets').value.toLowerCase();
+            let targets = rawTargets ? rawTargets.split(',').map(t => t.trim()).filter(t => t) : [];
+
+            if (id && name && !game.stats[id]) {
+                game.stats[id] = { 
+                    name: name, 
+                    value: isBoost ? new Decimal(1) : new Decimal(0), 
+                    isBoost: isBoost, 
+                    boostTargets: targets 
+                };
+                
+                document.getElementById('stat-id').value = '';
+                document.getElementById('stat-name').value = '';
+                document.getElementById('stat-boost-targets').value = '';
+                document.getElementById('stat-is-boost').checked = false;
+                document.getElementById('boost-targets').style.display = 'none';
+
+                alert(`Stat '${name}' added!`);
+                renderAll();
+                saveGame(true);
+            } else {
+                alert("Invalid ID or ID already exists.");
+            }
+        }
+
+        function createArea() {
+            let id = document.getElementById('area-id').value.trim().toLowerCase();
+            let name = document.getElementById('area-name').value.trim();
+            
+            let reqStr = document.getElementById('area-req').value;
+            let req = reqStr ? new Decimal(reqStr) : new Decimal(1);
+
+            if (id && name && !game.areas[id]) {
+                game.areas[id] = { name: name, reqLevel: req };
+                document.getElementById('area-id').value = '';
+                document.getElementById('area-name').value = '';
+                document.getElementById('area-req').value = '1';
+                alert(`Area '${name}' added!`);
+                renderAll();
+                saveGame(true);
+            } else {
+                alert("Invalid Area ID or ID already exists.");
+            }
+        }
+
+        function createButton() {
+            let area = document.getElementById('btn-area').value;
+            let costStat = document.getElementById('btn-cost-stat').value;
+            let costStr = document.getElementById('btn-cost').value;
+            let cost = costStr ? new Decimal(costStr) : new Decimal(0);
+            
+            let rewardStat = document.getElementById('btn-reward-stat').value;
+            let rewardStr = document.getElementById('btn-reward').value;
+            let reward = rewardStr ? new Decimal(rewardStr) : new Decimal(1);
+
+            if (area && costStat && rewardStat) {
+                game.buttons.push({
+                    id: 'btn_' + Date.now(),
+                    area, costStat, cost, rewardStat, reward
+                });
+                alert("Button added!");
+                renderAll();
+                saveGame(true);
+            } else {
+                alert("Please fill out all button fields.");
+            }
+        }
+
+        // --- RENDERING ENGINE ---
+        function renderStats() {
+            let html = '';
+            for (let key in game.stats) {
+                let s = game.stats[key];
+                let displayVal = formatNum(s.value);
+
+                let perSecondDisplay = '';
+                if (key === 'money') {
+                    let ratePerSec = new Decimal(25).mul(getBoostMultiplier('money'));
+                    perSecondDisplay = ` <span style="font-size: 0.8em; color: #43b581;">(+${formatNum(ratePerSec)}/s)</span>`;
+                }
+
+                html += `<div class="stat-item">${s.name}: ${displayVal}${perSecondDisplay}</div>`;
+            }
+            document.getElementById('stats-container').innerHTML = html;
+        }
+
+        function renderAreas() {
+            let container = document.getElementById('areas-container');
+            container.innerHTML = '';
+
+            for (let areaKey in game.areas) {
+                let area = game.areas[areaKey];
+                let isUnlocked = game.level.gte(area.reqLevel);
+                
+                let areaDiv = document.createElement('div');
+                areaDiv.className = `area ${isUnlocked ? '' : 'locked'}`;
+                
+                areaDiv.innerHTML = `<h3>${area.name} ${!isUnlocked ? `(Requires Lv ${formatNum(area.reqLevel)})` : ''}</h3>`;
+                
+                let btnGrid = document.createElement('div');
+                btnGrid.className = 'buttons-grid';
+
+                game.buttons.forEach((btn, index) => {
+                    if (btn.area === areaKey) {
+                        let btnEl = document.createElement('button');
+                        let costStatName = game.stats[btn.costStat] ? game.stats[btn.costStat].name : 'Unknown';
+                        let rewardStatName = game.stats[btn.rewardStat] ? game.stats[btn.rewardStat].name : 'Unknown';
+                        
+                        let canAfford = game.stats[btn.costStat] && game.stats[btn.costStat].value.gte(btn.cost);
+
+                        btnEl.className = 'sim-button';
+                        btnEl.dataset.index = index;
+                        btnEl.disabled = !canAfford || !isUnlocked;
+                        btnEl.onclick = () => clickButton(index);
+                        
+                        btnEl.innerHTML = `
+                            <div class="delete-btn" onclick="deleteButton(${index}, event)">✖</div>
+                            <span class="btn-reward">+${formatNum(btn.reward)} ${rewardStatName}</span>
+                            <span class="btn-cost">Cost: ${formatNum(btn.cost)} ${costStatName}</span>
+                        `;
+                        btnGrid.appendChild(btnEl);
+                    }
+                });
+
+                areaDiv.appendChild(btnGrid);
+                container.appendChild(areaDiv);
+            }
+        }
+
+        function updateButtonStates() {
+            document.querySelectorAll('.sim-button').forEach(btnEl => {
+                let index = btnEl.dataset.index;
+                if (index !== undefined) {
+                    let btn = game.buttons[index];
+                    if (btn) {
+                        let area = game.areas[btn.area];
+                        let canAfford = game.stats[btn.costStat] && game.stats[btn.costStat].value.gte(btn.cost);
+                        let isUnlocked = area && game.level.gte(area.reqLevel);
+                        btnEl.disabled = !canAfford || !isUnlocked;
+                    }
+                }
+            });
+        }
+
+        function updateCreatorDropdowns() {
+            let areaSelect = document.getElementById('btn-area');
+            let costSelect = document.getElementById('btn-cost-stat');
+            let rewardSelect = document.getElementById('btn-reward-stat');
+
+            let currentArea = areaSelect.value;
+            let currentCost = costSelect.value;
+            let currentReward = rewardSelect.value;
+
+            areaSelect.innerHTML = '';
+            costSelect.innerHTML = '';
+            rewardSelect.innerHTML = '';
+
+            for (let key in game.areas) {
+                areaSelect.innerHTML += `<option value="${key}">${game.areas[key].name}</option>`;
+            }
+
+            for (let key in game.stats) {
+                let opt = `<option value="${key}">${game.stats[key].name}</option>`;
+                costSelect.innerHTML += opt;
+                rewardSelect.innerHTML += opt;
+            }
+
+            if (currentArea) areaSelect.value = currentArea;
+            if (currentCost) costSelect.value = currentCost;
+            if (currentReward) rewardSelect.value = currentReward;
+        }
+
+        function renderAll() {
+            renderStats();
+            renderAreas();
+            updateCreatorDropdowns();
+        }
+
+        // --- FAST Passive Generation Loop ---
+        setInterval(() => {
+            if (game.stats.money) {
+                let genAmount = new Decimal(1).mul(getBoostMultiplier('money'));
+                game.stats.money.value = game.stats.money.value.add(genAmount);
+                
+                let oldLevelStr = game.level.toString();
+                updateLevel();
+                
+                renderStats(); 
+                
+                if (oldLevelStr !== game.level.toString()) {
+                    renderAreas();
+                } else {
+                    updateButtonStates();
+                }
+            }
+        }, 40);
+
+        // --- Auto-Save Loop (Every 5 seconds) ---
+        setInterval(() => {
+            saveGame(true); // true = silent save
+        }, 5000);
+
+        // Init: Load game on startup
+        loadGame();
+
+    </script>
+</body>
+</html>

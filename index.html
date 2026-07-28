@@ -251,7 +251,6 @@
                 <input type="number" id="stat-priority" placeholder="Priority Level (Default: 0)" value="0">
                 <small style="color:#aaa; display:block; margin-top:2px; margin-bottom: 5px;">Buying a stat with Priority <b>2 or higher</b> resets all stats below it.</small>
                 
-                <!-- NEW: Starting Amount -->
                 <input type="number" id="stat-base-value" placeholder="Starting Amount (Default: 0)" value="0">
                 <small style="color:#aaa; display:block; margin-top:2px; margin-bottom: 5px;">Use <b>0</b> for Cash/Rebirths. Use <b>1</b> for standard Multipliers.</small>
 
@@ -291,7 +290,6 @@
                 <input type="text" id="edit-stat-name" placeholder="Display Name">
                 <input type="number" id="edit-stat-priority" placeholder="Priority Level">
                 
-                <!-- NEW: Edit Starting Amount -->
                 <input type="number" id="edit-stat-base-value" placeholder="Starting Amount">
                 
                 <label style="font-size: 0.9em; margin-top: 5px; display: block;">
@@ -329,8 +327,8 @@
             return d.toExponential(2).replace('+', '');
         }
 
-        // Updated default: Money base=0, Multi base=1
         let defaultGame = {
+            isZeroBased: true,
             level: new Decimal(1),
             stats: {
                 money: { name: "Money", value: new Decimal(0), baseValue: new Decimal(0), priority: 0, isBoost: false },
@@ -354,17 +352,14 @@
                 let stat = gameState.stats[key];
                 stat.value = new Decimal(stat.value);
                 
-                // Set default priorities
                 if (stat.priority === undefined) {
                     if (key === 'multi') stat.priority = 1;
                     else stat.priority = 0;
                 }
 
-                // MIGRATION: Ensure Base Value exists!
                 if (stat.baseValue === undefined) {
                     if (key === 'multi' && stat.isBoost) {
                         stat.baseValue = new Decimal(1);
-                        // Fix multi if it was crushed to 0 in the previous version
                         if (stat.value.lt(1)) stat.value = new Decimal(1);
                     } else {
                         stat.baseValue = new Decimal(0);
@@ -373,7 +368,6 @@
                     stat.baseValue = new Decimal(stat.baseValue);
                 }
 
-                // Standardize boost structure
                 if (stat.isBoost && !stat.boosts) {
                     stat.boosts = {};
                     let pwr = 1;
@@ -388,6 +382,16 @@
                     delete stat.boostTargets;
                     delete stat.boostPower;
                 }
+            }
+            
+            if (!gameState.isZeroBased) {
+                for (let key in gameState.stats) {
+                    if (gameState.stats[key].isBoost) {
+                        gameState.stats[key].value = gameState.stats[key].value.sub(1);
+                        if (gameState.stats[key].value.lt(0)) gameState.stats[key].value = new Decimal(0);
+                    }
+                }
+                gameState.isZeroBased = true;
             }
             
             for (let key in gameState.areas) {
@@ -435,7 +439,6 @@
             if (confirm("Are you sure you want to reset your progress? Your stat amounts will return to their starting values, but your custom stats, areas, and buttons will be kept.")) {
                 for (let key in game.stats) {
                     let stat = game.stats[key];
-                    // Reset to their configured base value
                     stat.value = new Decimal(stat.baseValue || 0); 
                 }
                 
@@ -466,14 +469,25 @@
             document.getElementById('level-display').innerText = `Level: ${formatNum(game.level)}`;
         }
 
-        // --- NEW PURE MATH ---
-        // Formula: Amount * Power. Safely defaults to 1 if the result is 0.
+        // --- NEW: STRICT HIERARCHY RULE ---
         function getBoostMultiplier(targetStatId) {
             let mult = new Decimal(1);
+            let targetStatDef = game.stats[targetStatId];
+            if (!targetStatDef) return mult;
+            let targetPriority = targetStatDef.priority || 0;
+
             for (let key in game.stats) {
                 let stat = game.stats[key];
                 
+                // Prevent self-boosting
                 if (stat.isBoost && stat.boosts && key !== targetStatId) {
+                    
+                    // The core fix: Lower priority stats CANNOT boost higher priority stats!
+                    let boosterPriority = stat.priority || 0;
+                    if (boosterPriority < targetPriority) {
+                        continue; // Skip this boost entirely
+                    }
+
                     let power = stat.boosts[targetStatId];
                     if (power === undefined) power = stat.boosts['all'];
                     
@@ -481,7 +495,6 @@
                         let owned = stat.value; 
                         let effectiveValue = owned.mul(power);
                         
-                        // Safety Floor: Prevents stats at 0 from breaking the economy!
                         if (effectiveValue.lt(1)) effectiveValue = new Decimal(1);
                         
                         mult = mult.mul(effectiveValue);
@@ -511,7 +524,6 @@
                         let checkStat = game.stats[key];
                         let p = checkStat.priority || 0;
                         if (p < acquiredPriority) {
-                            // Reset down to their specific base value
                             checkStat.value = new Decimal(checkStat.baseValue || 0);
                         }
                     }
@@ -656,14 +668,13 @@
                 game.stats[id].priority = priority;
                 game.stats[id].baseValue = new Decimal(baseVal);
                 
-                // If they increased the base value, bump their current value up so they don't break
                 if (game.stats[id].value.lt(baseVal)) {
                     game.stats[id].value = new Decimal(baseVal);
                 }
                 
                 if (game.stats[id].isBoost !== isBoost) {
                     game.stats[id].isBoost = isBoost;
-                    game.stats[id].value = new Decimal(baseVal); // Reset to new base if type changed
+                    game.stats[id].value = new Decimal(baseVal); 
                 }
                 
                 if (isBoost) {

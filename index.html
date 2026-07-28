@@ -98,12 +98,27 @@
             pointer-events: none;
             filter: grayscale(100%);
         }
+        
+        .area > h3 {
+            margin-top: 0;
+            margin-bottom: 5px;
+        }
+
+        /* NEW: Categorizer styling */
+        .group-title {
+            margin: 20px 0 10px 0;
+            padding-bottom: 5px;
+            border-bottom: 1px dashed #555;
+            color: #aaa;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
 
         .buttons-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
             gap: 15px;
-            margin-top: 10px;
         }
 
         .sim-button {
@@ -118,7 +133,6 @@
             transition: transform 0.05s, background-color 0.1s;
             text-align: center;
             
-            /* NEW: Prevents text highlighting and double-click zooming when spamming */
             user-select: none;
             -webkit-user-select: none;
             touch-action: manipulation;
@@ -228,10 +242,13 @@
                 <input type="text" id="stat-id" placeholder="Stat ID (e.g., money, multi)">
                 <input type="text" id="stat-name" placeholder="Display Name (e.g., Money)">
                 <label style="font-size: 0.9em; margin-top: 5px; display: block;">
-                    <input type="checkbox" id="stat-is-boost" onchange="document.getElementById('boost-targets').style.display = this.checked ? 'block' : 'none'"> Is this a Boost/Multiplier?
+                    <input type="checkbox" id="stat-is-boost" onchange="document.getElementById('boost-options').style.display = this.checked ? 'block' : 'none'"> Is this a Boost/Multiplier?
                 </label>
-                <div id="boost-targets" style="display: none; margin-top: 5px;">
+                <div id="boost-options" style="display: none; margin-top: 5px;">
                     <input type="text" id="stat-boost-targets" placeholder="Boosts which Stats? (Blank = ALL)">
+                    <!-- NEW: Boost Power Customizer -->
+                    <input type="number" id="stat-boost-power" placeholder="Boost Power / Multiplier (Default: 1)" step="0.1">
+                    <small style="color:#aaa; display:block; margin-top:2px;">E.g., Power of 5 means every 1 stat = 5x multiplier</small>
                 </div>
                 <button class="creator-btn" onclick="createStat()">Add Stat</button>
             </div>
@@ -266,7 +283,6 @@
     <div id="save-notify">Game Saved!</div>
 
     <script>
-        // Number Formatter using break_eternity.js
         function formatNum(decimalValue) {
             let d = new Decimal(decimalValue);
             if (d.lt(1000)) return d.toNumber().toFixed(0);
@@ -277,12 +293,11 @@
             return d.toExponential(2).replace('+', '');
         }
 
-        // Default Game State structure
         let defaultGame = {
             level: new Decimal(1),
             stats: {
-                money: { name: "Money", value: new Decimal(0), isBoost: false, boostTargets: [] },
-                multi: { name: "Multiplier", value: new Decimal(1), isBoost: true, boostTargets: [] }
+                money: { name: "Money", value: new Decimal(0), isBoost: false, boostTargets: [], boostPower: new Decimal(1) },
+                multi: { name: "Multiplier", value: new Decimal(1), isBoost: true, boostTargets: [], boostPower: new Decimal(1) }
             },
             areas: {
                 spawn: { name: "Spawn", reqLevel: new Decimal(1) }
@@ -293,7 +308,6 @@
             ]
         };
 
-        // Active game state
         let game = JSON.parse(JSON.stringify(defaultGame)); 
         
         function parseDecimalsInGame(gameState) {
@@ -301,6 +315,12 @@
             
             for (let key in gameState.stats) {
                 gameState.stats[key].value = new Decimal(gameState.stats[key].value);
+                // Ensure boostPower exists for older saves
+                if (gameState.stats[key].boostPower) {
+                    gameState.stats[key].boostPower = new Decimal(gameState.stats[key].boostPower);
+                } else {
+                    gameState.stats[key].boostPower = new Decimal(1);
+                }
             }
             
             for (let key in gameState.areas) {
@@ -315,10 +335,8 @@
             return gameState;
         }
 
-        // --- SAVE & LOAD SYSTEM ---
         function saveGame(isAuto = false) {
             localStorage.setItem('customButtonSimSave', JSON.stringify(game));
-            
             if (!isAuto) {
                 let notify = document.getElementById('save-notify');
                 notify.innerText = "Game Saved!";
@@ -328,9 +346,7 @@
             }
         }
 
-        function manualSave() {
-            saveGame(false);
-        }
+        function manualSave() { saveGame(false); }
 
         function loadGame() {
             let saveStr = localStorage.getItem('customButtonSimSave');
@@ -371,7 +387,6 @@
             }
         }
 
-        // --- CALCULATION LOGIC ---
         function updateLevel() {
             let score = new Decimal(0);
             for (let key in game.stats) {
@@ -393,14 +408,20 @@
                 let stat = game.stats[key];
                 if (stat.isBoost) {
                     if (stat.boostTargets.length === 0 || stat.boostTargets.includes(targetStatId)) {
-                        mult = mult.mul(stat.value);
+                        // Apply the Boost Power multiplier (Default 1 means normal scaling)
+                        // If value = 2 and power = 5, effective multiplier is 10
+                        let effectiveValue = stat.value.mul(stat.boostPower);
+                        
+                        // Prevent the multiplier from dropping below 1 if power is set very low
+                        if (effectiveValue.lt(1)) effectiveValue = new Decimal(1);
+
+                        mult = mult.mul(effectiveValue);
                     }
                 }
             }
             return mult;
         }
 
-        // --- ACTION LOGIC (UPDATED FOR SPAMMING) ---
         function clickButton(btnIndex) {
             let btn = game.buttons[btnIndex];
             let costStat = game.stats[btn.costStat];
@@ -417,14 +438,11 @@
 
                 rewardStat.value = rewardStat.value.add(finalReward);
                 
-                // Track level to see if we need to redraw the areas to unlock a new one
                 let oldLevelStr = game.level.toString();
                 updateLevel();
                 
-                // Only redraw the top stats
                 renderStats(); 
                 
-                // Do NOT completely rebuild the buttons unless a new area unlocked
                 if (oldLevelStr !== game.level.toString()) {
                     renderAreas();
                 } else {
@@ -440,7 +458,6 @@
             saveGame(true);
         }
 
-        // Creator Functions
         function createStat() {
             let id = document.getElementById('stat-id').value.trim().toLowerCase();
             let name = document.getElementById('stat-name').value.trim();
@@ -448,20 +465,25 @@
             
             let rawTargets = document.getElementById('stat-boost-targets').value.toLowerCase();
             let targets = rawTargets ? rawTargets.split(',').map(t => t.trim()).filter(t => t) : [];
+            
+            let powerRaw = parseFloat(document.getElementById('stat-boost-power').value);
+            let boostPower = new Decimal(isNaN(powerRaw) || powerRaw <= 0 ? 1 : powerRaw);
 
             if (id && name && !game.stats[id]) {
                 game.stats[id] = { 
                     name: name, 
                     value: isBoost ? new Decimal(1) : new Decimal(0), 
                     isBoost: isBoost, 
-                    boostTargets: targets 
+                    boostTargets: targets,
+                    boostPower: boostPower
                 };
                 
                 document.getElementById('stat-id').value = '';
                 document.getElementById('stat-name').value = '';
                 document.getElementById('stat-boost-targets').value = '';
+                document.getElementById('stat-boost-power').value = '';
                 document.getElementById('stat-is-boost').checked = false;
-                document.getElementById('boost-targets').style.display = 'none';
+                document.getElementById('boost-options').style.display = 'none';
 
                 alert(`Stat '${name}' added!`);
                 renderAll();
@@ -514,7 +536,6 @@
             }
         }
 
-        // --- RENDERING ENGINE ---
         function renderStats() {
             let html = '';
             for (let key in game.stats) {
@@ -532,6 +553,7 @@
             document.getElementById('stats-container').innerHTML = html;
         }
 
+        // --- NEW: Render Areas with Button Categorization ---
         function renderAreas() {
             let container = document.getElementById('areas-container');
             container.innerHTML = '';
@@ -545,11 +567,34 @@
                 
                 areaDiv.innerHTML = `<h3>${area.name} ${!isUnlocked ? `(Requires Lv ${formatNum(area.reqLevel)})` : ''}</h3>`;
                 
-                let btnGrid = document.createElement('div');
-                btnGrid.className = 'buttons-grid';
-
-                game.buttons.forEach((btn, index) => {
+                // 1. Group buttons in this area by their rewardStat
+                let groupedButtons = {};
+                game.buttons.forEach((btn, originalIndex) => {
                     if (btn.area === areaKey) {
+                        if (!groupedButtons[btn.rewardStat]) {
+                            groupedButtons[btn.rewardStat] = [];
+                        }
+                        // Attach the original index so click logic and deletions still target the correct button
+                        groupedButtons[btn.rewardStat].push({ btnData: btn, originalIndex: originalIndex });
+                    }
+                });
+
+                // 2. Render each group with a divider/title
+                for (let statKey in groupedButtons) {
+                    let statDef = game.stats[statKey];
+                    let groupTitleText = statDef ? statDef.name : "Unknown Stat";
+
+                    let groupDiv = document.createElement('div');
+                    groupDiv.innerHTML = `<h4 class="group-title">${groupTitleText} Enhancers</h4>`;
+                    
+                    let btnGrid = document.createElement('div');
+                    btnGrid.className = 'buttons-grid';
+
+                    // 3. Render the buttons inside this specific group
+                    groupedButtons[statKey].forEach((item) => {
+                        let btn = item.btnData;
+                        let index = item.originalIndex;
+
                         let btnEl = document.createElement('button');
                         let costStatName = game.stats[btn.costStat] ? game.stats[btn.costStat].name : 'Unknown';
                         let rewardStatName = game.stats[btn.rewardStat] ? game.stats[btn.rewardStat].name : 'Unknown';
@@ -567,10 +612,12 @@
                             <span class="btn-cost">Cost: ${formatNum(btn.cost)} ${costStatName}</span>
                         `;
                         btnGrid.appendChild(btnEl);
-                    }
-                });
+                    });
 
-                areaDiv.appendChild(btnGrid);
+                    groupDiv.appendChild(btnGrid);
+                    areaDiv.appendChild(groupDiv);
+                }
+
                 container.appendChild(areaDiv);
             }
         }
@@ -643,9 +690,8 @@
             }
         }, 40);
 
-        // --- Auto-Save Loop (Every 5 seconds) ---
         setInterval(() => {
-            saveGame(true); // true = silent save
+            saveGame(true);
         }, 5000);
 
         // Init: Load game on startup

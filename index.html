@@ -279,7 +279,6 @@
                 <button class="creator-btn" onclick="createButton()">Add Button</button>
             </div>
 
-            <!-- NEW: Edit / Delete Stat Section -->
             <div class="form-group">
                 <h3>4. Edit / Delete Stat</h3>
                 <select id="edit-stat-select" onchange="loadStatIntoEditor()">
@@ -450,7 +449,8 @@
             let mult = new Decimal(1);
             for (let key in game.stats) {
                 let stat = game.stats[key];
-                if (stat.isBoost && stat.boosts) {
+                // NEW: Ensure a stat cannot multiply itself infinitely!
+                if (stat.isBoost && stat.boosts && key !== targetStatId) {
                     let power = stat.boosts[targetStatId];
                     if (power === undefined) power = stat.boosts['all'];
                     
@@ -475,9 +475,9 @@
                 
                 // 2. Calculate Reward
                 let finalReward = new Decimal(btn.reward);
-                if (!rewardStatDef.isBoost) {
-                    finalReward = finalReward.mul(getBoostMultiplier(btn.rewardStat));
-                }
+                
+                // NEW: Removed the block preventing Boosts from being multiplied!
+                finalReward = finalReward.mul(getBoostMultiplier(btn.rewardStat));
 
                 // 3. Prestige System Update
                 let acquiredPriority = rewardStatDef.priority || 0;
@@ -572,7 +572,6 @@
             }
         }
 
-        // --- NEW: Stat Editing and Deletion Functions ---
         function loadStatIntoEditor() {
             let id = document.getElementById('edit-stat-select').value;
             if (!id || !game.stats[id]) return;
@@ -629,7 +628,6 @@
                 game.stats[id].name = name;
                 game.stats[id].priority = priority;
                 
-                // If switching from normal stat to boost or vice versa, reset the amount correctly
                 if (game.stats[id].isBoost !== isBoost) {
                     game.stats[id].isBoost = isBoost;
                     game.stats[id].value = isBoost ? new Decimal(1) : new Decimal(0);
@@ -654,19 +652,14 @@
             if (!id || !game.stats[id]) return;
             
             if (confirm(`Are you sure you want to delete '${game.stats[id].name}'? This will also DELETE EVERY BUTTON that requires or rewards this stat!`)) {
-                // Remove the stat
                 delete game.stats[id];
-                
-                // Remove any buttons reliant on this stat
                 game.buttons = game.buttons.filter(btn => btn.costStat !== id && btn.rewardStat !== id);
-                
                 alert("Stat and related buttons deleted.");
                 updateLevel();
                 renderAll();
                 saveGame(true);
             }
         }
-        // ------------------------------------------------
 
         function createArea() {
             let id = document.getElementById('area-id').value.trim().toLowerCase();
@@ -841,7 +834,6 @@
                 costSelect.innerHTML += opt;
                 rewardSelect.innerHTML += opt;
                 
-                // Add to Edit dropdown with ID and Priority info
                 editSelect.innerHTML += `<option value="${key}">${game.stats[key].name} (ID: ${key})</option>`;
             }
 
@@ -849,12 +841,11 @@
             if (currentCost) costSelect.value = currentCost;
             if (currentReward) rewardSelect.value = currentReward;
             
-            // Reload the editor UI correctly based on dropdown
             if (currentEdit && game.stats[currentEdit]) {
                 editSelect.value = currentEdit;
                 loadStatIntoEditor();
             } else {
-                loadStatIntoEditor(); // Force load the first item in list if old one was deleted
+                loadStatIntoEditor(); 
             }
         }
 

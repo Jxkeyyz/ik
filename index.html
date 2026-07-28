@@ -445,19 +445,26 @@
             document.getElementById('level-display').innerText = `Level: ${formatNum(game.level)}`;
         }
 
+        // FIXED MATH: Formula is now 1 + (Purchased Amount * Power)
+        // Also removed the lock that prevented Boosts from targeting other Boosts!
         function getBoostMultiplier(targetStatId) {
             let mult = new Decimal(1);
             for (let key in game.stats) {
                 let stat = game.stats[key];
-                // NEW: Ensure a stat cannot multiply itself infinitely!
+                
                 if (stat.isBoost && stat.boosts && key !== targetStatId) {
                     let power = stat.boosts[targetStatId];
                     if (power === undefined) power = stat.boosts['all'];
                     
                     if (power !== undefined) {
-                        let effectiveValue = stat.value.mul(power);
-                        if (effectiveValue.lt(1)) effectiveValue = new Decimal(1);
-                        mult = mult.mul(effectiveValue);
+                        // Subtract 1 because boosts start at 1 inherently
+                        let owned = stat.value.sub(1); 
+                        
+                        if (owned.gt(0)) {
+                            // Standard Simulator Logic: 1 + (Owned * Power)
+                            let effectiveValue = new Decimal(1).add(owned.mul(power));
+                            mult = mult.mul(effectiveValue);
+                        }
                     }
                 }
             }
@@ -475,8 +482,6 @@
                 
                 // 2. Calculate Reward
                 let finalReward = new Decimal(btn.reward);
-                
-                // NEW: Removed the block preventing Boosts from being multiplied!
                 finalReward = finalReward.mul(getBoostMultiplier(btn.rewardStat));
 
                 // 3. Prestige System Update
@@ -772,15 +777,17 @@
                         let rewardStatName = game.stats[btn.rewardStat] ? game.stats[btn.rewardStat].name : 'Unknown';
                         
                         let canAfford = game.stats[btn.costStat] && game.stats[btn.costStat].value.gte(btn.cost);
+                        let finalVisualReward = new Decimal(btn.reward).mul(getBoostMultiplier(btn.rewardStat));
 
                         btnEl.className = 'sim-button';
                         btnEl.dataset.index = index;
                         btnEl.disabled = !canAfford || !isUnlocked;
                         btnEl.onclick = () => clickButton(index);
                         
+                        // NEW: Button text span given an ID so it can live-update in the background
                         btnEl.innerHTML = `
                             <div class="delete-btn" onclick="deleteButton(${index}, event)">✖</div>
-                            <span class="btn-reward">+${formatNum(btn.reward)} ${rewardStatName}</span>
+                            <span class="btn-reward" id="reward-text-${index}">+${formatNum(finalVisualReward)} ${rewardStatName}</span>
                             <span class="btn-cost">Cost: ${formatNum(btn.cost)} ${costStatName}</span>
                         `;
                         btnGrid.appendChild(btnEl);
@@ -794,6 +801,7 @@
             }
         }
 
+        // NEW: This loop now also live-updates the actual text inside the buttons 25 times a second
         function updateButtonStates() {
             document.querySelectorAll('.sim-button').forEach(btnEl => {
                 let index = btnEl.dataset.index;
@@ -804,6 +812,13 @@
                         let canAfford = game.stats[btn.costStat] && game.stats[btn.costStat].value.gte(btn.cost);
                         let isUnlocked = area && game.level.gte(area.reqLevel);
                         btnEl.disabled = !canAfford || !isUnlocked;
+                        
+                        let rewardSpan = document.getElementById(`reward-text-${index}`);
+                        if (rewardSpan) {
+                            let finalVisualReward = new Decimal(btn.reward).mul(getBoostMultiplier(btn.rewardStat));
+                            let rewardStatName = game.stats[btn.rewardStat] ? game.stats[btn.rewardStat].name : 'Unknown';
+                            rewardSpan.innerText = `+${formatNum(finalVisualReward)} ${rewardStatName}`;
+                        }
                     }
                 }
             });

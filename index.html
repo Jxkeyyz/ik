@@ -54,6 +54,13 @@
             border-left: 4px solid var(--accent);
         }
 
+        .stat-priority-tag {
+            font-size: 0.65em;
+            color: #888;
+            margin-left: 5px;
+            vertical-align: top;
+        }
+
         .level-badge {
             background: var(--warning);
             color: #111;
@@ -240,11 +247,14 @@
                 <h3>1. Create Stat</h3>
                 <input type="text" id="stat-id" placeholder="Stat ID (e.g., money, multi)">
                 <input type="text" id="stat-name" placeholder="Display Name (e.g., Money)">
+                
+                <input type="number" id="stat-priority" placeholder="Priority Level (Default: 0)" value="0">
+                <small style="color:#aaa; display:block; margin-top:2px; margin-bottom: 5px;">Priorities 0 and 1 act as normal purchases. Buying a stat with Priority <b>2 or higher</b> resets all stats below it.</small>
+                
                 <label style="font-size: 0.9em; margin-top: 5px; display: block;">
                     <input type="checkbox" id="stat-is-boost" onchange="document.getElementById('boost-options').style.display = this.checked ? 'block' : 'none'"> Is this a Boost/Multiplier?
                 </label>
                 <div id="boost-options" style="display: none; margin-top: 5px;">
-                    <!-- NEW: Multiple Boost Rules Syntax -->
                     <input type="text" id="stat-boosts-input" placeholder="Rules (e.g., money:5, rebirths:2)">
                     <small style="color:#aaa; display:block; margin-top:2px;">Format: <b>stat:power</b> (comma separated).<br>Use <b>all:power</b> to boost everything.<br>Example: <code>money:5, multi:1.5</code></small>
                 </div>
@@ -294,8 +304,8 @@
         let defaultGame = {
             level: new Decimal(1),
             stats: {
-                money: { name: "Money", value: new Decimal(0), isBoost: false },
-                multi: { name: "Multiplier", value: new Decimal(1), isBoost: true, boosts: { all: 1 } }
+                money: { name: "Money", value: new Decimal(0), priority: 0, isBoost: false },
+                multi: { name: "Multiplier", value: new Decimal(1), priority: 1, isBoost: true, boosts: { all: 1 } }
             },
             areas: {
                 spawn: { name: "Spawn", reqLevel: new Decimal(1) }
@@ -315,7 +325,11 @@
                 let stat = gameState.stats[key];
                 stat.value = new Decimal(stat.value);
                 
-                // MIGRATION: Convert old version's single boostPower to the new Multi-Boost format
+                if (stat.priority === undefined) {
+                    if (key === 'multi') stat.priority = 1;
+                    else stat.priority = 0;
+                }
+
                 if (stat.isBoost && !stat.boosts) {
                     stat.boosts = {};
                     let pwr = 1;
@@ -327,7 +341,6 @@
                     } else {
                         stat.boosts['all'] = pwr;
                     }
-                    // Clean up old obsolete properties
                     delete stat.boostTargets;
                     delete stat.boostPower;
                 }
@@ -412,19 +425,16 @@
             document.getElementById('level-display').innerText = `Level: ${formatNum(game.level)}`;
         }
 
-        // --- NEW: Dynamic Multi-Boost Checking ---
         function getBoostMultiplier(targetStatId) {
             let mult = new Decimal(1);
             for (let key in game.stats) {
                 let stat = game.stats[key];
                 if (stat.isBoost && stat.boosts) {
-                    // Check if this stat specifically boosts the target, or boosts 'all'
                     let power = stat.boosts[targetStatId];
                     if (power === undefined) power = stat.boosts['all'];
                     
                     if (power !== undefined) {
                         let effectiveValue = stat.value.mul(power);
-                        // Prevent power from lowering multiplier below 1
                         if (effectiveValue.lt(1)) effectiveValue = new Decimal(1);
                         mult = mult.mul(effectiveValue);
                     }
@@ -436,18 +446,38 @@
         function clickButton(btnIndex) {
             let btn = game.buttons[btnIndex];
             let costStat = game.stats[btn.costStat];
+            let rewardStatDef = game.stats[btn.rewardStat];
             
             if (costStat.value.gte(btn.cost)) {
+                // 1. Deduct Cost
                 costStat.value = costStat.value.sub(btn.cost);
                 
-                let rewardStat = game.stats[btn.rewardStat];
+                // 2. Calculate Reward
                 let finalReward = new Decimal(btn.reward);
-                
-                if (!rewardStat.isBoost) {
+                if (!rewardStatDef.isBoost) {
                     finalReward = finalReward.mul(getBoostMultiplier(btn.rewardStat));
                 }
 
-                rewardStat.value = rewardStat.value.add(finalReward);
+                // 3. Prestige System Update
+                // Priorities 0 (Cash) and 1 (Multiplier) act as standard purchases.
+                // Resetting only occurs when acquiring a stat with Priority 2 or higher.
+                let acquiredPriority = rewardStatDef.priority || 0;
+                if (acquiredPriority >= 2) {
+                    for (let key in game.stats) {
+                        let checkStat = game.stats[key];
+                        let p = checkStat.priority || 0;
+                        if (p < acquiredPriority) {
+                            if (checkStat.isBoost) {
+                                checkStat.value = new Decimal(1);
+                            } else {
+                                checkStat.value = new Decimal(0);
+                            }
+                        }
+                    }
+                }
+
+                // 4. Add the newly acquired reward
+                rewardStatDef.value = rewardStatDef.value.add(finalReward);
                 
                 let oldLevelStr = game.level.toString();
                 updateLevel();
@@ -469,10 +499,10 @@
             saveGame(true);
         }
 
-        // --- NEW: String Parsing for multiple boosts ---
         function createStat() {
             let id = document.getElementById('stat-id').value.trim().toLowerCase();
             let name = document.getElementById('stat-name').value.trim();
+            let priority = parseInt(document.getElementById('stat-priority').value) || 0;
             let isBoost = document.getElementById('stat-is-boost').checked;
             
             let boosts = {};
@@ -480,7 +510,6 @@
             if (isBoost) {
                 let rawStr = document.getElementById('stat-boosts-input').value.toLowerCase().trim();
                 if (rawStr) {
-                    // Splits "money:5, gems:2" into an array and parses each
                     let pairs = rawStr.split(',');
                     pairs.forEach(pair => {
                         let parts = pair.split(':');
@@ -489,14 +518,12 @@
                             let power = parseFloat(parts[1].trim());
                             if (!isNaN(power)) boosts[target] = power;
                         } else if (parts.length === 1 && parts[0].trim() !== "") {
-                            // If they just typed a number like "5"
                             let val = parseFloat(parts[0].trim());
                             if (!isNaN(val)) boosts['all'] = val; 
-                            else boosts[parts[0].trim()] = 1; // Or if they just typed a word like "money"
+                            else boosts[parts[0].trim()] = 1; 
                         }
                     });
                 }
-                // Default fallback if left blank
                 if (Object.keys(boosts).length === 0) {
                     boosts['all'] = 1;
                 }
@@ -506,13 +533,14 @@
                 game.stats[id] = { 
                     name: name, 
                     value: isBoost ? new Decimal(1) : new Decimal(0), 
+                    priority: priority,
                     isBoost: isBoost
                 };
                 if (isBoost) game.stats[id].boosts = boosts;
                 
-                // Clear UI
                 document.getElementById('stat-id').value = '';
                 document.getElementById('stat-name').value = '';
+                document.getElementById('stat-priority').value = '0';
                 document.getElementById('stat-boosts-input').value = '';
                 document.getElementById('stat-is-boost').checked = false;
                 document.getElementById('boost-options').style.display = 'none';
@@ -570,9 +598,12 @@
 
         function renderStats() {
             let html = '';
-            for (let key in game.stats) {
+            let sortedStats = Object.keys(game.stats).sort((a, b) => game.stats[a].priority - game.stats[b].priority);
+
+            sortedStats.forEach(key => {
                 let s = game.stats[key];
                 let displayVal = formatNum(s.value);
+                let priorityDisplay = `<span class="stat-priority-tag">[P:${s.priority}]</span>`;
 
                 let perSecondDisplay = '';
                 if (key === 'money') {
@@ -580,8 +611,8 @@
                     perSecondDisplay = ` <span style="font-size: 0.8em; color: #43b581;">(+${formatNum(ratePerSec)}/s)</span>`;
                 }
 
-                html += `<div class="stat-item">${s.name}: ${displayVal}${perSecondDisplay}</div>`;
-            }
+                html += `<div class="stat-item">${s.name} ${priorityDisplay}: ${displayVal}${perSecondDisplay}</div>`;
+            });
             document.getElementById('stats-container').innerHTML = html;
         }
 
@@ -608,12 +639,18 @@
                     }
                 });
 
-                for (let statKey in groupedButtons) {
+                let sortedGroups = Object.keys(groupedButtons).sort((a, b) => {
+                    let pA = game.stats[a] ? (game.stats[a].priority || 0) : 0;
+                    let pB = game.stats[b] ? (game.stats[b].priority || 0) : 0;
+                    return pA - pB;
+                });
+
+                sortedGroups.forEach(statKey => {
                     let statDef = game.stats[statKey];
-                    let groupTitleText = statDef ? statDef.name : "Unknown Stat";
+                    let groupTitleText = statDef ? `${statDef.name} Enhancers (Priority ${statDef.priority})` : "Unknown Stat";
 
                     let groupDiv = document.createElement('div');
-                    groupDiv.innerHTML = `<h4 class="group-title">${groupTitleText} Enhancers</h4>`;
+                    groupDiv.innerHTML = `<h4 class="group-title">${groupTitleText}</h4>`;
                     
                     let btnGrid = document.createElement('div');
                     btnGrid.className = 'buttons-grid';
@@ -643,7 +680,7 @@
 
                     groupDiv.appendChild(btnGrid);
                     areaDiv.appendChild(groupDiv);
-                }
+                });
 
                 container.appendChild(areaDiv);
             }

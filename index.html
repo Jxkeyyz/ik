@@ -486,6 +486,7 @@
             document.getElementById('level-display').innerText = `Level: ${formatNum(game.level)}`;
         }
 
+        // --- NEW PURE MATH: Amount * Power ---
         function getBoostMultiplier(targetStatId) {
             let mult = new Decimal(1);
             let targetStatDef = game.stats[targetStatId];
@@ -508,8 +509,15 @@
                     if (power !== undefined) {
                         let owned = stat.value; 
                         
+                        // We ONLY apply the boost if you own more than 0.
                         if (owned.gt(0)) {
-                            let effectiveValue = new Decimal(1).add(owned.mul(power));
+                            // Pure math: 3 Rebirths * 2 Power = 6
+                            let effectiveValue = owned.mul(power);
+                            
+                            // Safety Floor: Prevents a multiplier from dropping below 1x 
+                            // (so 1 rebirth at 0.5 power doesn't accidentally halve your income)
+                            if (effectiveValue.lt(1)) effectiveValue = new Decimal(1);
+                            
                             mult = mult.mul(effectiveValue);
                         }
                     }
@@ -778,7 +786,6 @@
                     let btnGrid = document.createElement('div');
                     btnGrid.className = 'buttons-grid';
 
-                    // --- NEW: Buttons sort correctly by cost ---
                     groupedButtons[statKey].sort((a, b) => a.btnData.cost.cmp(b.btnData.cost)).forEach((item) => {
                         let btn = item.btnData;
                         let index = item.originalIndex;

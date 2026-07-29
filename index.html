@@ -91,7 +91,6 @@
             flex-direction: column;
         }
 
-        /* NEW: TABS STYLING */
         .area-tabs {
             display: flex;
             gap: 10px;
@@ -267,7 +266,6 @@
     </header>
 
     <main>
-        <!-- The Areas Container now holds the tabs at the top -->
         <div class="game-area" id="areas-container"></div>
 
         <div class="sidebar">
@@ -295,7 +293,6 @@
                 <h3>2. Create Area</h3>
                 <input type="text" id="area-id" placeholder="Area ID (e.g., forest)">
                 <input type="text" id="area-name" placeholder="Area Name (e.g., Forest)">
-                <!-- REMOVED LEVEL REQUIREMENT BOX -->
                 <button class="creator-btn" onclick="createArea()">Add Area</button>
             </div>
 
@@ -354,14 +351,14 @@
 
         let defaultGame = {
             migratedToV3: true,
-            currentArea: 'spawn', // Tracks which tab you are inside
+            currentArea: 'spawn', 
             level: new Decimal(1),
             stats: {
                 money: { name: "Money", value: new Decimal(0), priority: 0, isBoost: false },
                 multi: { name: "Multiplier", value: new Decimal(0), priority: 1, isBoost: true, boosts: { all: 1 } }
             },
             areas: {
-                spawn: { name: "Spawn" } // reqLevel removed
+                spawn: { name: "Spawn" } 
             },
             buttons: [
                 { id: "b1", area: "spawn", costStat: "money", cost: new Decimal(0), rewardStat: "money", reward: new Decimal(1) },
@@ -409,7 +406,6 @@
                 gameState.migratedToV3 = true;
             }
             
-            // Default current area if missing
             if (!gameState.currentArea) {
                 gameState.currentArea = Object.keys(gameState.areas)[0];
             }
@@ -518,6 +514,7 @@
             document.getElementById('level-display').innerText = `Level: ${formatNum(game.level)}`;
         }
 
+        // --- FIXED MATH: Pure Amount * Power logic ---
         function getBoostMultiplier(targetStatId) {
             let mult = new Decimal(1);
             let targetStatDef = game.stats[targetStatId];
@@ -541,7 +538,14 @@
                         let owned = stat.value; 
                         
                         if (owned.gt(0)) {
-                            let effectiveValue = new Decimal(1).add(owned.mul(power));
+                            // PURE MATH: Amount * Power 
+                            // (No more '1 +' messing up your numbers!)
+                            let effectiveValue = owned.mul(power);
+                            
+                            // Safety Floor: Prevents multiplying by numbers less than 1 
+                            // (so stats at 0 just safely default to a 1x multiplier instead of breaking the game)
+                            if (effectiveValue.lt(1)) effectiveValue = new Decimal(1);
+                            
                             mult = mult.mul(effectiveValue);
                         }
                     }
@@ -760,17 +764,14 @@
             document.getElementById('stats-container').innerHTML = html;
         }
 
-        // --- NEW: RENDER AREAS WITH TABS ---
         function renderAreas() {
             let container = document.getElementById('areas-container');
             container.innerHTML = '';
 
-            // Ensure a valid current area is selected
             if (!game.currentArea || !game.areas[game.currentArea]) {
                 game.currentArea = Object.keys(game.areas)[0];
             }
 
-            // 1. Render the Tabs Row
             let tabsDiv = document.createElement('div');
             tabsDiv.className = 'area-tabs';
             
@@ -780,14 +781,13 @@
                 tabBtn.innerText = game.areas[areaKey].name;
                 tabBtn.onclick = () => {
                     game.currentArea = areaKey;
-                    renderAreas(); // Re-render to show new area
+                    renderAreas(); 
                     updateButtonStates();
                 };
                 tabsDiv.appendChild(tabBtn);
             }
             container.appendChild(tabsDiv);
 
-            // 2. Render ONLY the Active Area
             if (game.currentArea && game.areas[game.currentArea]) {
                 let areaKey = game.currentArea;
                 let area = game.areas[areaKey];
@@ -797,7 +797,6 @@
                 areaDiv.innerHTML = `<h3>${area.name}</h3>`;
                 
                 let groupedButtons = {};
-                // Only pull buttons that belong to the active area
                 game.buttons.forEach((btn, originalIndex) => {
                     if (btn.area === areaKey) {
                         if (!groupedButtons[btn.rewardStat]) {
@@ -836,7 +835,6 @@
 
                         btnEl.className = 'sim-button';
                         btnEl.dataset.index = index;
-                        // No level lock anymore, only checking affordability
                         btnEl.disabled = !canAfford; 
                         btnEl.onclick = () => clickButton(index);
                         
@@ -863,7 +861,7 @@
                     let btn = game.buttons[index];
                     if (btn) {
                         let canAfford = game.stats[btn.costStat] && game.stats[btn.costStat].value.gte(btn.cost);
-                        btnEl.disabled = !canAfford; // Level lock completely removed
+                        btnEl.disabled = !canAfford; 
                         
                         let rewardSpan = document.getElementById(`reward-text-${index}`);
                         if (rewardSpan) {
@@ -932,7 +930,6 @@
                 
                 renderStats(); 
                 
-                // Redraw areas if level changes (even though we aren't locking them anymore, level is still tracked)
                 if (oldLevelStr !== game.level.toString()) {
                     renderAreas();
                 } else {

@@ -327,6 +327,14 @@
                 </div>
             </div>
 
+            <!-- NEW: GIVE STAT (CHEAT) SECTION -->
+            <div class="form-group">
+                <h3>5. Give Stat (Cheat)</h3>
+                <select id="cheat-stat-select"></select>
+                <input type="text" id="cheat-stat-amount" placeholder="Amount (e.g., 1000 or 1e10)">
+                <button class="creator-btn" onclick="giveStat()">Add Amount</button>
+            </div>
+
             <div class="form-group">
                 <h3>System</h3>
                 <button class="creator-btn sys-btn" onclick="manualSave()">Save Game</button>
@@ -514,7 +522,6 @@
             document.getElementById('level-display').innerText = `Level: ${formatNum(game.level)}`;
         }
 
-        // --- FIXED MATH: Pure Amount * Power logic ---
         function getBoostMultiplier(targetStatId) {
             let mult = new Decimal(1);
             let targetStatDef = game.stats[targetStatId];
@@ -538,14 +545,8 @@
                         let owned = stat.value; 
                         
                         if (owned.gt(0)) {
-                            // PURE MATH: Amount * Power 
-                            // (No more '1 +' messing up your numbers!)
                             let effectiveValue = owned.mul(power);
-                            
-                            // Safety Floor: Prevents multiplying by numbers less than 1 
-                            // (so stats at 0 just safely default to a 1x multiplier instead of breaking the game)
                             if (effectiveValue.lt(1)) effectiveValue = new Decimal(1);
-                            
                             mult = mult.mul(effectiveValue);
                         }
                     }
@@ -744,6 +745,37 @@
             }
         }
 
+        // --- NEW: GIVE STAT FEATURE ---
+        function giveStat() {
+            let id = document.getElementById('cheat-stat-select').value;
+            let amountStr = document.getElementById('cheat-stat-amount').value.trim();
+            
+            if (!id || !game.stats[id]) return;
+
+            if (amountStr) {
+                try {
+                    let amount = new Decimal(amountStr);
+                    game.stats[id].value = game.stats[id].value.add(amount);
+                    
+                    let notify = document.getElementById('save-notify');
+                    notify.innerText = `Added ${formatNum(amount)} to ${game.stats[id].name}!`;
+                    notify.style.backgroundColor = "#7289da";
+                    notify.style.opacity = '1';
+                    setTimeout(() => notify.style.opacity = '0', 2500);
+                    
+                    document.getElementById('cheat-stat-amount').value = '';
+                    
+                    updateLevel();
+                    renderAll();
+                    saveGame(true);
+                } catch(e) {
+                    alert("Invalid number format! Use regular numbers or scientific notation (like 1e10).");
+                }
+            } else {
+                alert("Please enter an amount.");
+            }
+        }
+
         function renderStats() {
             let html = '';
             let sortedStats = Object.keys(game.stats).sort((a, b) => game.stats[a].priority - game.stats[b].priority);
@@ -879,16 +911,21 @@
             let costSelect = document.getElementById('btn-cost-stat');
             let rewardSelect = document.getElementById('btn-reward-stat');
             let editSelect = document.getElementById('edit-stat-select');
+            
+            // NEW: Cheat Select
+            let cheatSelect = document.getElementById('cheat-stat-select');
 
             let currentArea = areaSelect.value;
             let currentCost = costSelect.value;
             let currentReward = rewardSelect.value;
             let currentEdit = editSelect.value;
+            let currentCheat = cheatSelect.value;
 
             areaSelect.innerHTML = '';
             costSelect.innerHTML = '';
             rewardSelect.innerHTML = '';
             editSelect.innerHTML = '';
+            cheatSelect.innerHTML = '';
 
             for (let key in game.areas) {
                 areaSelect.innerHTML += `<option value="${key}">${game.areas[key].name}</option>`;
@@ -900,11 +937,13 @@
                 rewardSelect.innerHTML += opt;
                 
                 editSelect.innerHTML += `<option value="${key}">${game.stats[key].name} (ID: ${key})</option>`;
+                cheatSelect.innerHTML += `<option value="${key}">${game.stats[key].name} (ID: ${key})</option>`;
             }
 
             if (currentArea) areaSelect.value = currentArea;
             if (currentCost) costSelect.value = currentCost;
             if (currentReward) rewardSelect.value = currentReward;
+            if (currentCheat && game.stats[currentCheat]) cheatSelect.value = currentCheat;
             
             if (currentEdit && game.stats[currentEdit]) {
                 editSelect.value = currentEdit;

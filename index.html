@@ -87,6 +87,40 @@
             flex: 1;
             padding: 20px;
             overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* NEW: TABS STYLING */
+        .area-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #444;
+            overflow-x: auto;
+        }
+
+        .area-tab {
+            background-color: #333;
+            color: #aaa;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .area-tab:hover {
+            background-color: #444;
+            color: #fff;
+        }
+
+        .area-tab.active {
+            background-color: var(--accent);
+            color: #fff;
         }
 
         h2 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 5px; }
@@ -97,18 +131,13 @@
             padding: 15px;
             margin-bottom: 20px;
             border: 1px solid #444;
-            transition: filter 0.3s, opacity 0.3s;
-        }
-
-        .area.locked {
-            opacity: 0.5;
-            pointer-events: none;
-            filter: grayscale(100%);
+            flex: 1;
         }
         
         .area > h3 {
             margin-top: 0;
             margin-bottom: 5px;
+            color: var(--warning);
         }
 
         .group-title {
@@ -238,6 +267,7 @@
     </header>
 
     <main>
+        <!-- The Areas Container now holds the tabs at the top -->
         <div class="game-area" id="areas-container"></div>
 
         <div class="sidebar">
@@ -265,7 +295,7 @@
                 <h3>2. Create Area</h3>
                 <input type="text" id="area-id" placeholder="Area ID (e.g., forest)">
                 <input type="text" id="area-name" placeholder="Area Name (e.g., Forest)">
-                <input type="text" id="area-req" placeholder="Level Req to Enter" value="1">
+                <!-- REMOVED LEVEL REQUIREMENT BOX -->
                 <button class="creator-btn" onclick="createArea()">Add Area</button>
             </div>
 
@@ -324,13 +354,14 @@
 
         let defaultGame = {
             migratedToV3: true,
+            currentArea: 'spawn', // Tracks which tab you are inside
             level: new Decimal(1),
             stats: {
                 money: { name: "Money", value: new Decimal(0), priority: 0, isBoost: false },
                 multi: { name: "Multiplier", value: new Decimal(0), priority: 1, isBoost: true, boosts: { all: 1 } }
             },
             areas: {
-                spawn: { name: "Spawn", reqLevel: new Decimal(1) }
+                spawn: { name: "Spawn" } // reqLevel removed
             },
             buttons: [
                 { id: "b1", area: "spawn", costStat: "money", cost: new Decimal(0), rewardStat: "money", reward: new Decimal(1) },
@@ -378,8 +409,9 @@
                 gameState.migratedToV3 = true;
             }
             
-            for (let key in gameState.areas) {
-                gameState.areas[key].reqLevel = new Decimal(gameState.areas[key].reqLevel);
+            // Default current area if missing
+            if (!gameState.currentArea) {
+                gameState.currentArea = Object.keys(gameState.areas)[0];
             }
             
             gameState.buttons.forEach(btn => {
@@ -486,7 +518,6 @@
             document.getElementById('level-display').innerText = `Level: ${formatNum(game.level)}`;
         }
 
-        // --- NEW PURE MATH: Amount * Power ---
         function getBoostMultiplier(targetStatId) {
             let mult = new Decimal(1);
             let targetStatDef = game.stats[targetStatId];
@@ -509,15 +540,8 @@
                     if (power !== undefined) {
                         let owned = stat.value; 
                         
-                        // We ONLY apply the boost if you own more than 0.
                         if (owned.gt(0)) {
-                            // Pure math: 3 Rebirths * 2 Power = 6
-                            let effectiveValue = owned.mul(power);
-                            
-                            // Safety Floor: Prevents a multiplier from dropping below 1x 
-                            // (so 1 rebirth at 0.5 power doesn't accidentally halve your income)
-                            if (effectiveValue.lt(1)) effectiveValue = new Decimal(1);
-                            
+                            let effectiveValue = new Decimal(1).add(owned.mul(power));
                             mult = mult.mul(effectiveValue);
                         }
                     }
@@ -554,16 +578,9 @@
                 // 4. Add the newly acquired reward
                 rewardStatDef.value = rewardStatDef.value.add(finalReward);
                 
-                let oldLevelStr = game.level.toString();
                 updateLevel();
-                
                 renderStats(); 
-                
-                if (oldLevelStr !== game.level.toString()) {
-                    renderAreas();
-                } else {
-                    updateButtonStates();
-                }
+                updateButtonStates();
             }
         }
 
@@ -687,15 +704,11 @@
         function createArea() {
             let id = document.getElementById('area-id').value.trim().toLowerCase();
             let name = document.getElementById('area-name').value.trim();
-            
-            let reqStr = document.getElementById('area-req').value;
-            let req = reqStr ? new Decimal(reqStr) : new Decimal(1);
 
             if (id && name && !game.areas[id]) {
-                game.areas[id] = { name: name, reqLevel: req };
+                game.areas[id] = { name: name };
                 document.getElementById('area-id').value = '';
                 document.getElementById('area-name').value = '';
-                document.getElementById('area-req').value = '1';
                 alert(`Area '${name}' added!`);
                 renderAll();
                 saveGame(true);
@@ -747,20 +760,44 @@
             document.getElementById('stats-container').innerHTML = html;
         }
 
+        // --- NEW: RENDER AREAS WITH TABS ---
         function renderAreas() {
             let container = document.getElementById('areas-container');
             container.innerHTML = '';
 
+            // Ensure a valid current area is selected
+            if (!game.currentArea || !game.areas[game.currentArea]) {
+                game.currentArea = Object.keys(game.areas)[0];
+            }
+
+            // 1. Render the Tabs Row
+            let tabsDiv = document.createElement('div');
+            tabsDiv.className = 'area-tabs';
+            
             for (let areaKey in game.areas) {
+                let tabBtn = document.createElement('button');
+                tabBtn.className = `area-tab ${game.currentArea === areaKey ? 'active' : ''}`;
+                tabBtn.innerText = game.areas[areaKey].name;
+                tabBtn.onclick = () => {
+                    game.currentArea = areaKey;
+                    renderAreas(); // Re-render to show new area
+                    updateButtonStates();
+                };
+                tabsDiv.appendChild(tabBtn);
+            }
+            container.appendChild(tabsDiv);
+
+            // 2. Render ONLY the Active Area
+            if (game.currentArea && game.areas[game.currentArea]) {
+                let areaKey = game.currentArea;
                 let area = game.areas[areaKey];
-                let isUnlocked = game.level.gte(area.reqLevel);
                 
                 let areaDiv = document.createElement('div');
-                areaDiv.className = `area ${isUnlocked ? '' : 'locked'}`;
-                
-                areaDiv.innerHTML = `<h3>${area.name} ${!isUnlocked ? `(Requires Lv ${formatNum(area.reqLevel)})` : ''}</h3>`;
+                areaDiv.className = 'area';
+                areaDiv.innerHTML = `<h3>${area.name}</h3>`;
                 
                 let groupedButtons = {};
+                // Only pull buttons that belong to the active area
                 game.buttons.forEach((btn, originalIndex) => {
                     if (btn.area === areaKey) {
                         if (!groupedButtons[btn.rewardStat]) {
@@ -799,7 +836,8 @@
 
                         btnEl.className = 'sim-button';
                         btnEl.dataset.index = index;
-                        btnEl.disabled = !canAfford || !isUnlocked;
+                        // No level lock anymore, only checking affordability
+                        btnEl.disabled = !canAfford; 
                         btnEl.onclick = () => clickButton(index);
                         
                         btnEl.innerHTML = `
@@ -824,10 +862,8 @@
                 if (index !== undefined) {
                     let btn = game.buttons[index];
                     if (btn) {
-                        let area = game.areas[btn.area];
                         let canAfford = game.stats[btn.costStat] && game.stats[btn.costStat].value.gte(btn.cost);
-                        let isUnlocked = area && game.level.gte(area.reqLevel);
-                        btnEl.disabled = !canAfford || !isUnlocked;
+                        btnEl.disabled = !canAfford; // Level lock completely removed
                         
                         let rewardSpan = document.getElementById(`reward-text-${index}`);
                         if (rewardSpan) {
@@ -896,6 +932,7 @@
                 
                 renderStats(); 
                 
+                // Redraw areas if level changes (even though we aren't locking them anymore, level is still tracked)
                 if (oldLevelStr !== game.level.toString()) {
                     renderAreas();
                 } else {

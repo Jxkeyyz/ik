@@ -250,15 +250,12 @@
                 
                 <input type="number" id="stat-priority" placeholder="Priority Level (Default: 0)" value="0">
                 <small style="color:#aaa; display:block; margin-top:2px; margin-bottom: 5px;">Buying a stat with Priority <b>2 or higher</b> resets all stats below it.</small>
-                
-                <input type="number" id="stat-base-value" placeholder="Starting Amount (Default: 0)" value="0">
-                <small style="color:#aaa; display:block; margin-top:2px; margin-bottom: 5px;">Use <b>0</b> for Cash/Rebirths. Use <b>1</b> for standard Multipliers.</small>
 
                 <label style="font-size: 0.9em; margin-top: 5px; display: block;">
                     <input type="checkbox" id="stat-is-boost" onchange="document.getElementById('boost-options').style.display = this.checked ? 'block' : 'none'"> Is this a Boost/Multiplier?
                 </label>
                 <div id="boost-options" style="display: none; margin-top: 5px;">
-                    <input type="text" id="stat-boosts-input" placeholder="Rules (e.g., money:5, rebirths:2)">
+                    <input type="text" id="stat-boosts-input" placeholder="Rules (e.g., multi:x5, money:x2)">
                     <small style="color:#aaa; display:block; margin-top:2px;">Format: <b>stat:power</b> (comma separated).<br>Use <b>all:power</b> to boost everything.<br>Example: <code>money:5, multi:1.5</code></small>
                 </div>
                 <button class="creator-btn" onclick="createStat()">Add Stat</button>
@@ -290,13 +287,11 @@
                 <input type="text" id="edit-stat-name" placeholder="Display Name">
                 <input type="number" id="edit-stat-priority" placeholder="Priority Level">
                 
-                <input type="number" id="edit-stat-base-value" placeholder="Starting Amount">
-                
                 <label style="font-size: 0.9em; margin-top: 5px; display: block;">
                     <input type="checkbox" id="edit-stat-is-boost" onchange="document.getElementById('edit-boost-options').style.display = this.checked ? 'block' : 'none'"> Is this a Boost/Multiplier?
                 </label>
                 <div id="edit-boost-options" style="display: none; margin-top: 5px;">
-                    <input type="text" id="edit-stat-boosts-input" placeholder="Rules (e.g., money:5, rebirths:2)">
+                    <input type="text" id="edit-stat-boosts-input" placeholder="Rules (e.g., multi:x5, money:x2)">
                 </div>
                 
                 <div style="display: flex; gap: 10px; margin-top: 10px;">
@@ -328,11 +323,11 @@
         }
 
         let defaultGame = {
-            isZeroBased: true,
+            migratedToV3: true,
             level: new Decimal(1),
             stats: {
-                money: { name: "Money", value: new Decimal(0), baseValue: new Decimal(0), priority: 0, isBoost: false },
-                multi: { name: "Multiplier", value: new Decimal(1), baseValue: new Decimal(1), priority: 1, isBoost: true, boosts: { all: 1 } }
+                money: { name: "Money", value: new Decimal(0), priority: 0, isBoost: false },
+                multi: { name: "Multiplier", value: new Decimal(0), priority: 1, isBoost: true, boosts: { all: 1 } }
             },
             areas: {
                 spawn: { name: "Spawn", reqLevel: new Decimal(1) }
@@ -357,17 +352,6 @@
                     else stat.priority = 0;
                 }
 
-                if (stat.baseValue === undefined) {
-                    if (key === 'multi' && stat.isBoost) {
-                        stat.baseValue = new Decimal(1);
-                        if (stat.value.lt(1)) stat.value = new Decimal(1);
-                    } else {
-                        stat.baseValue = new Decimal(0);
-                    }
-                } else {
-                    stat.baseValue = new Decimal(stat.baseValue);
-                }
-
                 if (stat.isBoost && !stat.boosts) {
                     stat.boosts = {};
                     let pwr = 1;
@@ -384,14 +368,14 @@
                 }
             }
             
-            if (!gameState.isZeroBased) {
+            if (!gameState.migratedToV3) {
                 for (let key in gameState.stats) {
-                    if (gameState.stats[key].isBoost) {
-                        gameState.stats[key].value = gameState.stats[key].value.sub(1);
-                        if (gameState.stats[key].value.lt(0)) gameState.stats[key].value = new Decimal(0);
+                    if (gameState.stats[key].isBoost && gameState.stats[key].value.eq(1)) {
+                        gameState.stats[key].value = new Decimal(0);
                     }
+                    delete gameState.stats[key].baseValue;
                 }
-                gameState.isZeroBased = true;
+                gameState.migratedToV3 = true;
             }
             
             for (let key in gameState.areas) {
@@ -404,6 +388,40 @@
             });
             
             return gameState;
+        }
+
+        function getParsedBoosts(rawStr) {
+            let boosts = {};
+            let nameMap = {};
+            for (let k in game.stats) {
+                nameMap[game.stats[k].name.toLowerCase()] = k;
+            }
+
+            if (rawStr) {
+                let pairs = rawStr.split(',');
+                pairs.forEach(pair => {
+                    let parts = pair.split(':');
+                    if (parts.length === 2) {
+                        let target = parts[0].trim().toLowerCase();
+                        if (nameMap[target]) target = nameMap[target]; 
+                        
+                        let powerStr = parts[1].trim().replace(/x/gi, ''); 
+                        let power = parseFloat(powerStr);
+                        if (!isNaN(power)) boosts[target] = power;
+                    } else if (parts.length === 1 && parts[0].trim() !== "") {
+                        let valStr = parts[0].trim().replace(/x/gi, '');
+                        let val = parseFloat(valStr);
+                        if (!isNaN(val)) boosts['all'] = val; 
+                        else {
+                            let target = parts[0].trim().toLowerCase();
+                            if (nameMap[target]) target = nameMap[target];
+                            boosts[target] = 1; 
+                        }
+                    }
+                });
+            }
+            if (Object.keys(boosts).length === 0) boosts['all'] = 1;
+            return boosts;
         }
 
         function saveGame(isAuto = false) {
@@ -436,10 +454,9 @@
         }
 
         function resetGame() {
-            if (confirm("Are you sure you want to reset your progress? Your stat amounts will return to their starting values, but your custom stats, areas, and buttons will be kept.")) {
+            if (confirm("Are you sure you want to reset your progress? Your stat amounts will return to 0, but your custom stats, areas, and buttons will be kept.")) {
                 for (let key in game.stats) {
-                    let stat = game.stats[key];
-                    stat.value = new Decimal(stat.baseValue || 0); 
+                    game.stats[key].value = new Decimal(0); 
                 }
                 
                 updateLevel();
@@ -469,7 +486,6 @@
             document.getElementById('level-display').innerText = `Level: ${formatNum(game.level)}`;
         }
 
-        // --- NEW: STRICT HIERARCHY RULE ---
         function getBoostMultiplier(targetStatId) {
             let mult = new Decimal(1);
             let targetStatDef = game.stats[targetStatId];
@@ -479,13 +495,11 @@
             for (let key in game.stats) {
                 let stat = game.stats[key];
                 
-                // Prevent self-boosting
                 if (stat.isBoost && stat.boosts && key !== targetStatId) {
                     
-                    // The core fix: Lower priority stats CANNOT boost higher priority stats!
                     let boosterPriority = stat.priority || 0;
                     if (boosterPriority < targetPriority) {
-                        continue; // Skip this boost entirely
+                        continue; 
                     }
 
                     let power = stat.boosts[targetStatId];
@@ -493,11 +507,11 @@
                     
                     if (power !== undefined) {
                         let owned = stat.value; 
-                        let effectiveValue = owned.mul(power);
                         
-                        if (effectiveValue.lt(1)) effectiveValue = new Decimal(1);
-                        
-                        mult = mult.mul(effectiveValue);
+                        if (owned.gt(0)) {
+                            let effectiveValue = new Decimal(1).add(owned.mul(power));
+                            mult = mult.mul(effectiveValue);
+                        }
                     }
                 }
             }
@@ -524,7 +538,7 @@
                         let checkStat = game.stats[key];
                         let p = checkStat.priority || 0;
                         if (p < acquiredPriority) {
-                            checkStat.value = new Decimal(checkStat.baseValue || 0);
+                            checkStat.value = new Decimal(0); 
                         }
                     }
                 }
@@ -556,38 +570,18 @@
             let id = document.getElementById('stat-id').value.trim().toLowerCase();
             let name = document.getElementById('stat-name').value.trim();
             let priority = parseInt(document.getElementById('stat-priority').value) || 0;
-            let baseVal = parseFloat(document.getElementById('stat-base-value').value) || 0;
             let isBoost = document.getElementById('stat-is-boost').checked;
             
             let boosts = {};
-            
             if (isBoost) {
-                let rawStr = document.getElementById('stat-boosts-input').value.toLowerCase().trim();
-                if (rawStr) {
-                    let pairs = rawStr.split(',');
-                    pairs.forEach(pair => {
-                        let parts = pair.split(':');
-                        if (parts.length === 2) {
-                            let target = parts[0].trim();
-                            let power = parseFloat(parts[1].trim());
-                            if (!isNaN(power)) boosts[target] = power;
-                        } else if (parts.length === 1 && parts[0].trim() !== "") {
-                            let val = parseFloat(parts[0].trim());
-                            if (!isNaN(val)) boosts['all'] = val; 
-                            else boosts[parts[0].trim()] = 1; 
-                        }
-                    });
-                }
-                if (Object.keys(boosts).length === 0) {
-                    boosts['all'] = 1;
-                }
+                let rawStr = document.getElementById('stat-boosts-input').value;
+                boosts = getParsedBoosts(rawStr);
             }
 
             if (id && name && !game.stats[id]) {
                 game.stats[id] = { 
                     name: name, 
-                    value: new Decimal(baseVal),
-                    baseValue: new Decimal(baseVal),
+                    value: new Decimal(0),
                     priority: priority,
                     isBoost: isBoost
                 };
@@ -596,7 +590,6 @@
                 document.getElementById('stat-id').value = '';
                 document.getElementById('stat-name').value = '';
                 document.getElementById('stat-priority').value = '0';
-                document.getElementById('stat-base-value').value = '0';
                 document.getElementById('stat-boosts-input').value = '';
                 document.getElementById('stat-is-boost').checked = false;
                 document.getElementById('boost-options').style.display = 'none';
@@ -616,7 +609,6 @@
             let stat = game.stats[id];
             document.getElementById('edit-stat-name').value = stat.name;
             document.getElementById('edit-stat-priority').value = stat.priority || 0;
-            document.getElementById('edit-stat-base-value').value = stat.baseValue ? stat.baseValue.toNumber() : 0;
             document.getElementById('edit-stat-is-boost').checked = stat.isBoost;
             
             let boostOptions = document.getElementById('edit-boost-options');
@@ -639,42 +631,21 @@
             
             let name = document.getElementById('edit-stat-name').value.trim();
             let priority = parseInt(document.getElementById('edit-stat-priority').value) || 0;
-            let baseVal = parseFloat(document.getElementById('edit-stat-base-value').value) || 0;
             let isBoost = document.getElementById('edit-stat-is-boost').checked;
             
             let boosts = {};
             if (isBoost) {
-                let rawStr = document.getElementById('edit-stat-boosts-input').value.toLowerCase().trim();
-                if (rawStr) {
-                    let pairs = rawStr.split(',');
-                    pairs.forEach(pair => {
-                        let parts = pair.split(':');
-                        if (parts.length === 2) {
-                            let target = parts[0].trim();
-                            let power = parseFloat(parts[1].trim());
-                            if (!isNaN(power)) boosts[target] = power;
-                        } else if (parts.length === 1 && parts[0].trim() !== "") {
-                            let val = parseFloat(parts[0].trim());
-                            if (!isNaN(val)) boosts['all'] = val; 
-                            else boosts[parts[0].trim()] = 1; 
-                        }
-                    });
-                }
-                if (Object.keys(boosts).length === 0) boosts['all'] = 1;
+                let rawStr = document.getElementById('edit-stat-boosts-input').value;
+                boosts = getParsedBoosts(rawStr);
             }
 
             if (name) {
                 game.stats[id].name = name;
                 game.stats[id].priority = priority;
-                game.stats[id].baseValue = new Decimal(baseVal);
-                
-                if (game.stats[id].value.lt(baseVal)) {
-                    game.stats[id].value = new Decimal(baseVal);
-                }
                 
                 if (game.stats[id].isBoost !== isBoost) {
                     game.stats[id].isBoost = isBoost;
-                    game.stats[id].value = new Decimal(baseVal); 
+                    game.stats[id].value = new Decimal(0);
                 }
                 
                 if (isBoost) {
@@ -807,7 +778,8 @@
                     let btnGrid = document.createElement('div');
                     btnGrid.className = 'buttons-grid';
 
-                    groupedButtons[statKey].forEach((item) => {
+                    // --- NEW: Buttons sort correctly by cost ---
+                    groupedButtons[statKey].sort((a, b) => a.btnData.cost.cmp(b.btnData.cost)).forEach((item) => {
                         let btn = item.btnData;
                         let index = item.originalIndex;
 

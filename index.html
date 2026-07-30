@@ -183,6 +183,17 @@
 
         .btn-cost, .btn-reward { font-size: 0.95em; display: block; margin: 3px 0; }
         .btn-reward { color: #fff; font-weight: 900; font-size: 1.1em; }
+        
+        /* NEW: Condition Tag */
+        .btn-cond {
+            font-size: 0.85em;
+            color: #ffaa00;
+            display: block;
+            margin-top: 5px;
+            background: rgba(0,0,0,0.3);
+            padding: 3px;
+            border-radius: 4px;
+        }
 
         .delete-btn {
             position: absolute;
@@ -303,6 +314,22 @@
                 <input type="text" id="btn-cost" placeholder="Cost (e.g., 100 or 1e15)">
                 <select id="btn-reward-stat" placeholder="Reward Stat"></select>
                 <input type="text" id="btn-reward" placeholder="Reward (e.g., 1 or 1e5)">
+                
+                <!-- NEW: CONDITION FIELDS -->
+                <label style="font-size: 0.9em; margin-top: 10px; display: block; border-top: 1px dashed #555; padding-top: 10px;">
+                    <input type="checkbox" id="btn-has-cond" onchange="document.getElementById('btn-cond-options').style.display = this.checked ? 'block' : 'none'"> Add Special Requirement (e.g., Rebuilds)
+                </label>
+                <div id="btn-cond-options" style="display: none; margin-top: 5px; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 4px;">
+                    <select id="btn-cond-stat"></select>
+                    <select id="btn-cond-op" style="margin-top: 5px;">
+                        <option value="gte">Must be AT LEAST (&ge;)</option>
+                        <option value="lte">Must be LESS THAN (&le;)</option>
+                        <option value="eq">Must be EXACTLY (==)</option>
+                    </select>
+                    <input type="text" id="btn-cond-val" placeholder="Amount (e.g. 0 or 5)" style="margin-top: 5px;">
+                    <small style="color:#aaa; display:block; margin-top:2px;">Button will be completely locked unless this is met.</small>
+                </div>
+
                 <button class="creator-btn" onclick="createButton()">Add Button</button>
             </div>
 
@@ -327,7 +354,6 @@
                 </div>
             </div>
 
-            <!-- NEW: GIVE STAT (CHEAT) SECTION -->
             <div class="form-group">
                 <h3>5. Give Stat (Cheat)</h3>
                 <select id="cheat-stat-select"></select>
@@ -349,7 +375,9 @@
     <script>
         function formatNum(decimalValue) {
             let d = new Decimal(decimalValue);
-            if (d.lt(1000)) return d.toNumber().toFixed(0);
+            if (d.lt(1000)) {
+                return (Math.round(d.toNumber() * 100) / 100).toString();
+            }
             if (d.lt(1e6)) return (d.toNumber() / 1000).toFixed(2) + 'k';
             if (d.lt(1e9)) return (d.toNumber() / 1e6).toFixed(2) + 'M';
             if (d.lt(1e12)) return (d.toNumber() / 1e9).toFixed(2) + 'B';
@@ -421,6 +449,10 @@
             gameState.buttons.forEach(btn => {
                 btn.cost = new Decimal(btn.cost);
                 btn.reward = new Decimal(btn.reward);
+                // Ensure conditions have decimal values
+                if (btn.hasCondition && btn.condVal !== undefined && btn.condVal !== null) {
+                    btn.condVal = new Decimal(btn.condVal);
+                }
             });
             
             return gameState;
@@ -560,15 +592,22 @@
             let costStat = game.stats[btn.costStat];
             let rewardStatDef = game.stats[btn.rewardStat];
             
-            if (costStat.value.gte(btn.cost)) {
-                // 1. Deduct Cost
+            // Check condition again for security
+            let conditionMet = true;
+            if (btn.hasCondition && btn.condStat && game.stats[btn.condStat]) {
+                let statVal = game.stats[btn.condStat].value;
+                let cVal = new Decimal(btn.condVal);
+                if (btn.condOp === 'gte') conditionMet = statVal.gte(cVal);
+                else if (btn.condOp === 'lte') conditionMet = statVal.lte(cVal);
+                else if (btn.condOp === 'eq') conditionMet = statVal.eq(cVal);
+            }
+
+            if (costStat.value.gte(btn.cost) && conditionMet) {
                 costStat.value = costStat.value.sub(btn.cost);
                 
-                // 2. Calculate Reward
                 let finalReward = new Decimal(btn.reward);
                 finalReward = finalReward.mul(getBoostMultiplier(btn.rewardStat));
 
-                // 3. Prestige System Update
                 let acquiredPriority = rewardStatDef.priority || 0;
                 if (acquiredPriority >= 2) {
                     for (let key in game.stats) {
@@ -580,7 +619,6 @@
                     }
                 }
 
-                // 4. Add the newly acquired reward
                 rewardStatDef.value = rewardStatDef.value.add(finalReward);
                 
                 updateLevel();
@@ -732,11 +770,28 @@
             let rewardStr = document.getElementById('btn-reward').value;
             let reward = rewardStr ? new Decimal(rewardStr) : new Decimal(1);
 
+            // NEW: Conditions
+            let hasCond = document.getElementById('btn-has-cond').checked;
+            let condStat = document.getElementById('btn-cond-stat').value;
+            let condOp = document.getElementById('btn-cond-op').value;
+            let condValStr = document.getElementById('btn-cond-val').value;
+            let condVal = condValStr ? new Decimal(condValStr) : new Decimal(0);
+
             if (area && costStat && rewardStat) {
                 game.buttons.push({
                     id: 'btn_' + Date.now(),
-                    area, costStat, cost, rewardStat, reward
+                    area, costStat, cost, rewardStat, reward,
+                    hasCondition: hasCond,
+                    condStat: hasCond ? condStat : null,
+                    condOp: hasCond ? condOp : null,
+                    condVal: hasCond ? condVal : null
                 });
+                
+                // Clear UI
+                document.getElementById('btn-has-cond').checked = false;
+                document.getElementById('btn-cond-options').style.display = 'none';
+                document.getElementById('btn-cond-val').value = '';
+                
                 alert("Button added!");
                 renderAll();
                 saveGame(true);
@@ -745,7 +800,6 @@
             }
         }
 
-        // --- NEW: GIVE STAT FEATURE ---
         function giveStat() {
             let id = document.getElementById('cheat-stat-select').value;
             let amountStr = document.getElementById('cheat-stat-amount').value.trim();
@@ -862,18 +916,40 @@
                         let costStatName = game.stats[btn.costStat] ? game.stats[btn.costStat].name : 'Unknown';
                         let rewardStatName = game.stats[btn.rewardStat] ? game.stats[btn.rewardStat].name : 'Unknown';
                         
+                        // Condition check for rendering
+                        let conditionMet = true;
+                        let condText = "";
+                        if (btn.hasCondition && btn.condStat && game.stats[btn.condStat]) {
+                            let statVal = game.stats[btn.condStat].value;
+                            let cVal = new Decimal(btn.condVal);
+                            let sName = game.stats[btn.condStat].name;
+                            if (btn.condOp === 'gte') {
+                                conditionMet = statVal.gte(cVal);
+                                condText = `Req: ${sName} &ge; ${formatNum(cVal)}`;
+                            } else if (btn.condOp === 'lte') {
+                                conditionMet = statVal.lte(cVal);
+                                condText = `Req: ${sName} &le; ${formatNum(cVal)}`;
+                            } else if (btn.condOp === 'eq') {
+                                conditionMet = statVal.eq(cVal);
+                                condText = `Req: ${sName} == ${formatNum(cVal)}`;
+                            }
+                        }
+
                         let canAfford = game.stats[btn.costStat] && game.stats[btn.costStat].value.gte(btn.cost);
                         let finalVisualReward = new Decimal(btn.reward).mul(getBoostMultiplier(btn.rewardStat));
 
                         btnEl.className = 'sim-button';
                         btnEl.dataset.index = index;
-                        btnEl.disabled = !canAfford; 
+                        btnEl.disabled = !canAfford || !conditionMet; 
                         btnEl.onclick = () => clickButton(index);
+                        
+                        let condHtml = condText ? `<span class="btn-cond">${condText}</span>` : '';
                         
                         btnEl.innerHTML = `
                             <div class="delete-btn" onclick="deleteButton(${index}, event)">✖</div>
                             <span class="btn-reward" id="reward-text-${index}">+${formatNum(finalVisualReward)} ${rewardStatName}</span>
                             <span class="btn-cost">Cost: ${formatNum(btn.cost)} ${costStatName}</span>
+                            ${condHtml}
                         `;
                         btnGrid.appendChild(btnEl);
                     });
@@ -892,8 +968,17 @@
                 if (index !== undefined) {
                     let btn = game.buttons[index];
                     if (btn) {
+                        let conditionMet = true;
+                        if (btn.hasCondition && btn.condStat && game.stats[btn.condStat]) {
+                            let statVal = game.stats[btn.condStat].value;
+                            let cVal = new Decimal(btn.condVal);
+                            if (btn.condOp === 'gte') conditionMet = statVal.gte(cVal);
+                            else if (btn.condOp === 'lte') conditionMet = statVal.lte(cVal);
+                            else if (btn.condOp === 'eq') conditionMet = statVal.eq(cVal);
+                        }
+                        
                         let canAfford = game.stats[btn.costStat] && game.stats[btn.costStat].value.gte(btn.cost);
-                        btnEl.disabled = !canAfford; 
+                        btnEl.disabled = !canAfford || !conditionMet; 
                         
                         let rewardSpan = document.getElementById(`reward-text-${index}`);
                         if (rewardSpan) {
@@ -911,21 +996,22 @@
             let costSelect = document.getElementById('btn-cost-stat');
             let rewardSelect = document.getElementById('btn-reward-stat');
             let editSelect = document.getElementById('edit-stat-select');
-            
-            // NEW: Cheat Select
             let cheatSelect = document.getElementById('cheat-stat-select');
+            let condStatSelect = document.getElementById('btn-cond-stat'); // NEW
 
             let currentArea = areaSelect.value;
             let currentCost = costSelect.value;
             let currentReward = rewardSelect.value;
             let currentEdit = editSelect.value;
             let currentCheat = cheatSelect.value;
+            let currentCond = condStatSelect.value;
 
             areaSelect.innerHTML = '';
             costSelect.innerHTML = '';
             rewardSelect.innerHTML = '';
             editSelect.innerHTML = '';
             cheatSelect.innerHTML = '';
+            condStatSelect.innerHTML = '';
 
             for (let key in game.areas) {
                 areaSelect.innerHTML += `<option value="${key}">${game.areas[key].name}</option>`;
@@ -935,6 +1021,7 @@
                 let opt = `<option value="${key}">${game.stats[key].name}</option>`;
                 costSelect.innerHTML += opt;
                 rewardSelect.innerHTML += opt;
+                condStatSelect.innerHTML += opt;
                 
                 editSelect.innerHTML += `<option value="${key}">${game.stats[key].name} (ID: ${key})</option>`;
                 cheatSelect.innerHTML += `<option value="${key}">${game.stats[key].name} (ID: ${key})</option>`;
@@ -944,6 +1031,7 @@
             if (currentCost) costSelect.value = currentCost;
             if (currentReward) rewardSelect.value = currentReward;
             if (currentCheat && game.stats[currentCheat]) cheatSelect.value = currentCheat;
+            if (currentCond && game.stats[currentCond]) condStatSelect.value = currentCond;
             
             if (currentEdit && game.stats[currentEdit]) {
                 editSelect.value = currentEdit;
